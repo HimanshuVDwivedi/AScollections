@@ -42,6 +42,8 @@
     gift: '<svg viewBox="0 0 24 24"><path d="M4 11h16v9H4zM3 7h18v4H3zM12 7v13"/><path d="M12 7S10 3 7.5 4 9 7 12 7Zm0 0s2-4 4.5-3S15 7 12 7Z"/></svg>',
     lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
     check: '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+    user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
+    pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
     bag: '<svg viewBox="0 0 24 24"><path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
     sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg>'
   };
@@ -89,6 +91,14 @@
   // Turns a Google Drive "share" link into a direct image link
   const driveImg = u => { const m = u.match(/\/d\/([\w-]{20,})|id=([\w-]{20,})/); return m && u.includes("drive.google") ? `https://lh3.googleusercontent.com/d/${m[1] || m[2]}` : u; };
   async function loadProducts() {
+    if (CFG.orderApiUrl) {
+      try {
+        const res = await fetch(CFG.orderApiUrl + "?action=products", { cache: "no-store" });
+        const data = await res.json();
+        if (data.settings) state.remote = data.settings;
+        if (data.ok && data.products?.length) return data.products.map(p => ({ ...p, images: (p.images || []).map(driveImg) }));
+      } catch (e) { console.warn("Could not load products from the store backend.", e); }
+    }
     if (CFG.productsSheetCsvUrl) {
       try {
         const res = await fetch(CFG.productsSheetCsvUrl, { cache: "no-store" });
@@ -105,6 +115,22 @@
       } catch (e) { console.warn("Could not load the Google Sheet, using products.js instead.", e); }
     }
     return window.AS_PRODUCTS || [];
+  }
+
+  /* ---------- UPI details: from the Sheet's Settings tab, else from config.js ---------- */
+  const upiInfo = () => ({
+    id: (state.remote?.upiId || CFG.upi?.id || "").trim(),
+    name: state.remote?.upiName || CFG.upi?.name || CFG.brand,
+    wa: state.remote?.whatsapp || CFG.whatsappNumber
+  });
+  const upiLink = (u, amount, orderNo) => `upi://pay?pa=${encodeURIComponent(u.id).replace(/%40/g, "@")}&pn=${encodeURIComponent(u.name)}&am=${Number(amount).toFixed(2)}&cu=INR&tn=${encodeURIComponent("Order " + orderNo)}`;
+  function loadScript(src) { return new Promise((ok, fail) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => fail(new Error("Could not load " + src)); document.head.appendChild(s); }); }
+
+  /* ---------- Activity log (goes to the "Activity" tab of your Sheet) ---------- */
+  function track(event, details = "", amount = "") {
+    if (!CFG.orderApiUrl) return;
+    const body = JSON.stringify({ action: "track", event, details, amount, customer: state.user?.email || "Guest" });
+    try { if (!(navigator.sendBeacon && navigator.sendBeacon(CFG.orderApiUrl, body))) fetch(CFG.orderApiUrl, { method: "POST", body, keepalive: true, mode: "no-cors" }); } catch {}
   }
 
   /* ---------- Cart maths ---------- */
@@ -132,6 +158,7 @@
     if (want > p.stock) return toast(`Only ${p.stock} left in stock`);
     line ? (line.qty = want) : state.cart.push({ id, qty });
     saveCart();
+    track("Added to bag", `${p.name} (${p.id}) × ${qty}`, p.price * qty);
     if (open) openDrawer("cartDrawer"); else toast(`Added to bag ✨ <a href="#/checkout">Checkout</a>`);
   }
   function setQty(id, qty) {
@@ -146,6 +173,7 @@
     store.set("wish", state.wish); updateBadges(true);
     $$(`.wish[data-id="${id}"]`).forEach(b => { b.classList.toggle("on", !on); b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop"); });
     toast(on ? "Removed from wishlist" : "Saved to your wishlist 💖");
+    if (!on) { const p = byId(id); if (p) track("Added to wishlist", `${p.name} (${p.id})`, p.price); }
     renderWish();
   }
 
@@ -451,6 +479,10 @@
     }
     const u = state.user || {}, saved = store.get("address", {});
     const demo = !CFG.orderApiUrl;
+    const onlineOn = demo || !!CFG.razorpayKeyId;
+    const upiOn = !!upiInfo().id;
+    const firstPay = upiOn ? "upi" : onlineOn ? "online" : "cod";
+    if (!sessionStorage.getItem("asj_ckv")) { try { sessionStorage.setItem("asj_ckv", "1"); } catch {} track("Viewed checkout", t.lines.map(l => `${l.p.name} × ${l.qty}`).join(", "), t.total); }
     app.innerHTML = `
       <section class="container page-head"><div class="crumbs"><a href="#/">Home</a> / Checkout</div><h1>Checkout</h1></section>
       <section class="container checkout">
@@ -458,7 +490,7 @@
           ${demo ? `<div class="demo-banner"><b>Demo mode:</b> no real payment is taken. Add your Razorpay key and order API in <code>js/config.js</code> to accept payments.</div>` : ""}
           <div class="panel">
             <h3><span class="step-no">1</span> Contact</h3>
-            ${state.user ? `<p class="muted" style="margin-top:0">Signed in as <b>${esc(u.email)}</b></p>` : `<p class="muted" style="margin-top:0">Have a Google account? <a href="#" data-act="account" style="color:var(--rose);font-weight:600">Sign in</a> for faster checkout — or continue as guest.</p>`}
+            ${state.user ? `<p class="muted" style="margin-top:0">Signed in as <b>${esc(u.email)}</b></p>` : `<p class="muted" style="margin-top:0">Have an account? <a href="#" data-act="account" style="color:var(--rose);font-weight:600">Login</a> for faster checkout — or continue as guest.</p>`}
             <div class="form-grid">
               <label class="field">Full name<input name="name" required autocomplete="name" placeholder=" " value="${esc(saved.name || u.name || "")}"></label>
               <label class="field">Mobile number<input name="phone" required inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" autocomplete="tel-national" placeholder=" " value="${esc(saved.phone || "")}"></label>
@@ -478,8 +510,9 @@
           </div>
           <div class="panel">
             <h3><span class="step-no">3</span> Payment</h3>
-            <label class="pay-opt"><input type="radio" name="pay" value="online" checked><div><b>Pay online</b><small>UPI, cards, net banking, wallets — secured by Razorpay</small></div></label>
-            ${CFG.codAvailable ? `<label class="pay-opt"><input type="radio" name="pay" value="cod"><div><b>Cash on Delivery</b><small>Pay when your order arrives</small></div></label>` : ""}
+            ${upiOn ? `<label class="pay-opt pay-upi"><input type="radio" name="pay" value="upi" ${firstPay === "upi" ? "checked" : ""}><div><b>Pay by UPI <span class="pay-tag">Recommended</span></b><small>Scan the QR or open GPay, PhonePe, Paytm · then share the payment screenshot on WhatsApp</small></div><span class="upi-apps" aria-hidden="true">UPI</span></label>` : ""}
+            ${onlineOn ? `<label class="pay-opt"><input type="radio" name="pay" value="online" ${firstPay === "online" ? "checked" : ""}><div><b>Pay online</b><small>Cards, net banking, wallets — secured by Razorpay</small></div></label>` : ""}
+            ${CFG.codAvailable || firstPay === "cod" ? `<label class="pay-opt"><input type="radio" name="pay" value="cod" ${firstPay === "cod" ? "checked" : ""}><div><b>Cash on Delivery</b><small>Pay when your order arrives</small></div></label>` : ""}
           </div>
         </form>
         <aside class="summary">
@@ -542,6 +575,17 @@
     btn.disabled = true; btn.innerHTML = "Processing…";
     const reset = () => { btn.disabled = false; btn.innerHTML = `${icon.lock} Place order · ${money(t.total)}`; };
     try {
+      if (c.pay === "upi") {
+        let order;
+        if (CFG.orderApiUrl) {
+          const r = await api({ action: "upiOrder", items, coupon: state.coupon, customer });
+          order = { orderNumber: r.orderNumber, total: r.amount / 100, upi: { id: r.upiId, name: r.upiName, wa: r.whatsapp || CFG.whatsappNumber } };
+        } else {
+          await new Promise(r => setTimeout(r, 600));
+          order = { orderNumber: "DEMO-" + Date.now().toString(36).toUpperCase(), total: t.total, upi: upiInfo(), demo: true };
+        }
+        return finishOrder({ ...order, method: "upi", customerName: c.name }, "#/pay");
+      }
       if (!CFG.orderApiUrl) {               // DEMO MODE
         await new Promise(r => setTimeout(r, 900));
         return finishOrder({ orderNumber: "DEMO-" + Date.now().toString(36).toUpperCase(), total: t.total, method: c.pay, demo: true });
@@ -564,26 +608,88 @@
             finishOrder({ orderNumber: r.orderNumber, total: r.amount / 100, method: "online", paymentId: resp.razorpay_payment_id });
           } catch (err) { toast("Payment received but not verified yet. We'll confirm on WhatsApp shortly."); reset(); }
         },
-        modal: { ondismiss: () => { toast("Payment cancelled — your bag is saved"); reset(); } }
+        modal: { ondismiss: () => { toast("Payment cancelled — your bag is saved"); api({ action: "paymentFailed", razorpay_order_id: r.razorpayOrderId, cancelled: true }).catch(() => {}); reset(); } }
       });
-      rzp.on("payment.failed", resp => { toast("Payment failed: " + (resp.error?.description || "please try again")); reset(); });
+      rzp.on("payment.failed", resp => {
+        toast("Payment failed: " + (resp.error?.description || "please try again"));
+        api({ action: "paymentFailed", razorpay_order_id: r.razorpayOrderId, reason: resp.error?.description || "" }).catch(() => {});
+        reset();
+      });
       rzp.open();
     } catch (err) { console.error(err); toast(esc(err.message)); reset(); }
   }
-  function finishOrder(order) {
+  function finishOrder(order, next = "#/success") {
     const items = totals().lines.map(l => ({ id: l.id, name: l.p.name, qty: l.qty, price: l.p.price }));
-    state.lastOrder = { ...order, items, date: new Date().toISOString(), email: state.user?.email || "" }; store.set("lastOrder", state.lastOrder);
+    state.lastOrder = { ...order, items, date: new Date().toISOString(), email: state.user?.email || "", user: userKey(state.user) }; store.set("lastOrder", state.lastOrder);
     store.set("orders", [state.lastOrder, ...store.get("orders", [])].slice(0, 30));
     state.cart = []; state.coupon = ""; store.set("coupon", ""); saveCart();
-    location.hash = "#/success";
+    location.hash = next;
+  }
+
+  /* ---------- UPI payment screen (after a UPI order is placed) ---------- */
+  async function viewPay() {
+    const o = state.lastOrder;
+    if (!o || o.method !== "upi") return viewNotFound();
+    const u = o.upi || upiInfo();
+    const link = upiLink(u, o.total, o.orderNumber);
+    const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia("(pointer: coarse)").matches;
+    const proofMsg = `Hi ${CFG.brand}! I've paid for my order by UPI.\n\nOrder: ${o.orderNumber}\nAmount: ₹${Math.round(o.total).toLocaleString("en-IN")}\nName: ${o.customerName || ""}\nUPI transaction ID (UTR): \n\n(Payment screenshot attached)`;
+    const proofLink = `https://wa.me/${u.wa || CFG.whatsappNumber}?text=${encodeURIComponent(proofMsg)}`;
+    document.title = `Complete payment — ${CFG.brand}`;
+    app.innerHTML = `
+      <section class="container pay-wrap">
+        <div class="pay-card">
+          ${o.demo ? `<div class="demo-banner">Demo mode — this order was not saved. Add your UPI ID to test real payments.</div>` : ""}
+          <span class="pill cod">Order ${esc(o.orderNumber)} · reserved for you</span>
+          <h1>Complete your payment</h1>
+          <div class="pay-amount">${money(o.total)}</div>
+          <p class="muted">Pay to <b>${esc(u.name)}</b> using any UPI app</p>
+
+          <div class="pay-steps">
+            <div class="pay-step">
+              <h3><span class="step-no">1</span> ${mobile ? "Pay with your UPI app" : "Scan & pay"}</h3>
+              ${mobile ? `<a class="btn btn-primary btn-block" href="${esc(link)}" id="upiAppBtn">Pay ${money(o.total)} with UPI app</a>
+                <p class="muted pay-small">Opens GPay, PhonePe, Paytm or your bank app with the amount filled in.</p>
+                <details class="qr-more"><summary>Paying from another phone? Show QR code</summary><div class="qr-box" id="qrBox"></div></details>`
+              : `<div class="qr-box" id="qrBox"><span class="muted">Loading QR…</span></div>
+                <p class="muted pay-small">Open GPay, PhonePe, Paytm or any UPI app → Scan QR → pay ${money(o.total)}.</p>`}
+              <div class="upi-id-row"><span>UPI ID: <b id="upiIdText">${esc(u.id || "—")}</b></span><button type="button" class="link-btn" id="copyUpi">Copy</button></div>
+            </div>
+            <div class="pay-step">
+              <h3><span class="step-no">2</span> Send payment proof</h3>
+              <p class="muted pay-small">After paying, share the screenshot or UPI transaction ID with us on WhatsApp. We'll confirm your order right away.</p>
+              <a class="btn btn-wa btn-block" id="sendProof" href="${esc(proofLink)}" target="_blank" rel="noopener">I've paid — send proof on WhatsApp</a>
+            </div>
+          </div>
+          <p class="muted pay-small">Your order is saved. If you need help, message us on WhatsApp with your order number.</p>
+          <a class="guest-link" href="#/success" id="payDone">I've sent the proof — continue →</a>
+        </div>
+      </section>`;
+    $("#copyUpi").onclick = async () => {
+      try { await navigator.clipboard.writeText(u.id); toast("UPI ID copied"); }
+      catch { const r = document.createRange(); r.selectNodeContents($("#upiIdText")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast("UPI ID selected — copy it"); }
+    };
+    $("#sendProof").onclick = () => {
+      track("Sent UPI proof on WhatsApp", o.orderNumber, o.total);
+      o.proofSent = true; store.set("lastOrder", o);
+      const list = store.get("orders", []); if (list[0]?.orderNumber === o.orderNumber) { list[0].proofSent = true; store.set("orders", list); }
+      setTimeout(() => { $("#payDone")?.classList.add("pulse"); }, 600);
+    };
+    try {
+      await loadScript("js/qrcode.js?v=9");
+      const box = $("#qrBox"); if (box) box.innerHTML = window.ASQR.svg(link, { label: `UPI QR code to pay ${money(o.total)}` });
+    } catch { const box = $("#qrBox"); if (box) box.innerHTML = `<p class="muted">QR couldn't load. Pay to the UPI ID below.</p>`; }
   }
   function viewSuccess() {
     const o = state.lastOrder;
     if (!o) return viewNotFound();
     app.innerHTML = `<section class="container success">
       <div class="tick">${icon.check}</div>
-      <h1>Thank you${state.user ? ", " + esc(state.user.name.split(" ")[0]) : ""}! 💖</h1>
-      <p>Your order <b>${esc(o.orderNumber)}</b> for <b>${money(o.total)}</b> is confirmed${o.method === "cod" ? " (Cash on Delivery)" : ""}.</p>
+      <h1>Thank you${state.user ? ", " + esc(firstName(state.user)) : ""}! 💖</h1>
+      <p>${o.method === "upi"
+        ? `Your order <b>${esc(o.orderNumber)}</b> for <b>${money(o.total)}</b> is placed. We'll confirm it as soon as we check your UPI payment.`
+        : `Your order <b>${esc(o.orderNumber)}</b> for <b>${money(o.total)}</b> is confirmed${o.method === "cod" ? " (Cash on Delivery)" : ""}.`}</p>
+      ${o.method === "upi" && !o.proofSent ? `<p><a class="btn btn-outline" href="#/pay">Haven't paid yet? Go back to payment</a></p>` : ""}
       ${o.demo ? `<p class="demo-banner">This was a demo order — no payment was taken and nothing was saved.</p>` : `<p class="muted">We'll send updates on WhatsApp and email. Dispatch in 1–2 working days.</p>`}
       <div class="hero-ctas" style="justify-content:center">
         <a class="btn btn-primary" href="#/shop">Continue shopping</a>
@@ -654,17 +760,47 @@
   }
   function openAccount() {
     closeAll();
-    const body = $("#accountBody"), u = state.user;
-    if (u) { location.hash = "#/account"; return; }
-    {
-      body.innerHTML = `<h2 id="accTitle">Welcome to ${esc(CFG.brand)}</h2><p class="muted">Sign in to save your wishlist, address and orders.</p>
-        <div class="gsi-wrap" id="gsiBtn"></div>
-        ${CFG.googleClientId ? "" : `<div class="note"><b>Setup needed:</b> add your Google OAuth Client ID to <code>googleClientId</code> in <code>js/config.js</code> to turn on "Continue with Google".</div>`}
-        <p class="muted" style="font-size:.8rem;margin-top:14px">You can always check out as a guest.</p>`;
-      if (CFG.googleClientId) initGoogle().then(() => window.google.accounts.id.renderButton($("#gsiBtn"), { theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 280 })).catch(() => toast("Google Sign-In couldn't load"));
-    }
-    const m = $("#accountModal"); m.classList.add("open"); m.setAttribute("aria-hidden", "false"); $("#overlay").classList.add("show");
+    if (!state.user && location.hash.startsWith("#/checkout")) { try { sessionStorage.setItem("asj_return", "#/checkout"); } catch {} }
+    if (location.hash.startsWith("#/account")) viewAccount(); else location.hash = "#/account";
   }
+  const firstName = u => ((u && u.name) || "").trim().split(" ")[0];
+  const userKey = u => (u && (u.email || u.phone)) || "";
+  // Runs after a successful Google sign-in
+  function afterLogin() {
+    renderAccountIcon(); closeAll();
+    toast(`Welcome${firstName(state.user) ? ", " + esc(firstName(state.user)) : ""}! ✨`);
+    let back = ""; try { back = sessionStorage.getItem("asj_return") || ""; sessionStorage.removeItem("asj_return"); } catch {}
+    if (back && back !== location.hash) location.hash = back;
+    else if (location.hash.startsWith("#/checkout")) viewCheckout();
+    else viewAccount();
+  }
+
+  /* ---------- Login page (shown only on My Account when signed out) ---------- */
+  function viewLogin() {
+    document.title = `Login — ${CFG.brand}`;
+    app.innerHTML = `
+      <section class="container login-wrap">
+        <div class="login-card">
+          <div class="login-gem">${icon.sparkle}</div>
+          <h1>Login or Sign up</h1>
+          <p class="muted">Save your address, see your orders and check out in seconds.</p>
+          <div class="gsi-wrap" id="gsiBtn"></div>
+          ${CFG.googleClientId ? "" : `<div class="note"><b>Setup needed:</b> add your Google Client ID to <code>googleClientId</code> in <code>js/config.js</code>.</div>`}
+          <ul class="login-perks">
+            <li>${icon.truck} Address saved for faster checkout</li>
+            <li>${icon.gift} Track all your orders in one place</li>
+            <li>${icon.heart} Keep your wishlist on any visit</li>
+          </ul>
+          <p class="terms">By continuing, you accept our <a href="#/page/privacy">Privacy Policy</a> and <a href="#/page/terms">T&amp;Cs</a>.</p>
+          <a class="guest-link" href="#/shop">Continue shopping as guest →</a>
+        </div>
+      </section>`;
+    if (CFG.googleClientId) initGoogle().then(() => {
+      const box = $("#gsiBtn"); if (!box) return;
+      window.google.accounts.id.renderButton(box, { theme: "outline", size: "large", shape: "pill", text: "continue_with", logo_alignment: "center", width: Math.min(320, box.clientWidth || 320) });
+    }).catch(() => toast("Google Sign-In couldn't load. Check your internet."));
+  }
+
   function signOut() {
     state.user = null; store.set("user", null); store.set("cred", null);
     try { window.google?.accounts.id.disableAutoSelect(); } catch {}
@@ -672,97 +808,105 @@
     if (location.hash.startsWith("#/account")) location.hash = "#/";
   }
 
-  /* ---------- My Profile page ---------- */
-  function viewAccount() {
+  /* ---------- My Account (tabs: profile · address · orders · wishlist) ---------- */
+  function viewAccount(tab = "profile") {
     const u = state.user;
-    document.title = `My Profile — ${CFG.brand}`;
-    if (!u) {
-      app.innerHTML = `<section class="container empty" style="padding:90px 0"><div class="big">👤</div><h2>Sign in to see your profile</h2>
-        <p>Save your details once and check out faster every time.</p><button class="btn btn-primary" data-act="account">Sign in with Google</button></section>`;
-      return;
-    }
-    const a = store.get("address", {}), orders = store.get("orders", []).filter(o => !o.email || o.email === u.email);
+    if (!u) return viewLogin();
+    const a = store.get("address", {});
+    const orders = store.get("orders", []).filter(o => !(o.user || o.email) || o.user === userKey(u) || o.email === u.email);
     const wish = state.wish.map(byId).filter(Boolean);
-    const filled = [a.name, a.phone, a.line1, a.city, a.pincode, a.state].filter(Boolean).length;
-    const status = o => o.demo ? ["Demo", "demo"] : o.method === "cod" ? ["Cash on Delivery", "cod"] : ["Paid", "paid"];
-    app.innerHTML = `
-      <section class="container page-head"><div class="crumbs"><a href="#/">Home</a> / My Profile</div><h1>My Profile</h1></section>
-      <section class="container account">
-        <aside class="panel acc-side">
-          ${u.picture ? `<img class="avatar-lg" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<div class="avatar-lg avatar-initial">${esc(u.name[0] || "?")}</div>`}
-          <h3>${esc(u.name)}</h3>
-          <p class="muted acc-email">${esc(u.email)}</p>
-          <div class="acc-progress"><span>Profile ${Math.round(filled / 6 * 100)}% complete</span><div class="meter"><i style="width:${Math.round(filled / 6 * 100)}%"></i></div></div>
-          <nav class="acc-nav">
-            <button data-jump="acc-details">${icon.shield} Personal details</button>
-            <button data-jump="acc-address">${icon.truck} Delivery address</button>
-            <button data-jump="acc-orders">${icon.gift} My orders <b>${orders.length}</b></button>
-            <button data-jump="acc-wish">${icon.heart} Wishlist <b>${wish.length}</b></button>
-          </nav>
-          <button class="btn btn-outline btn-block" id="signOutBtn">Sign out</button>
-        </aside>
-        <div class="acc-main">
-          <form id="profileForm" novalidate>
-            <div class="panel" id="acc-details">
-              <h3>Personal details</h3>
-              <div class="form-grid">
-                <label class="field">Full name<input name="name" required autocomplete="name" placeholder=" " value="${esc(a.name || u.name)}"></label>
-                <label class="field">Mobile number<input name="phone" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" autocomplete="tel-national" placeholder="10-digit mobile" value="${esc(a.phone || "")}"></label>
-                <label class="field full">Email<input name="email" type="email" value="${esc(u.email)}" readonly><small class="hint">From your Google account. Order updates are sent here.</small></label>
-              </div>
-            </div>
-            <div class="panel" id="acc-address">
-              <h3>Delivery address</h3>
-              <p class="muted" style="margin-top:0">Saved here and filled in for you at checkout.</p>
-              <div class="form-grid">
-                <label class="field full">House / flat, street<input name="line1" autocomplete="address-line1" placeholder=" " value="${esc(a.line1 || "")}"></label>
-                <label class="field full">Area, landmark<input name="line2" autocomplete="address-line2" placeholder=" " value="${esc(a.line2 || "")}"></label>
-                <label class="field">City<input name="city" autocomplete="address-level2" placeholder=" " value="${esc(a.city || "")}"></label>
-                <label class="field">PIN code<input name="pincode" inputmode="numeric" pattern="[1-9][0-9]{5}" maxlength="6" autocomplete="postal-code" placeholder=" " value="${esc(a.pincode || "")}"></label>
-                <label class="field full">State<select name="state">${STATES.map(s => `<option ${a.state === s ? "selected" : ""} value="${s}">${s || "Select state"}</option>`).join("")}</select></label>
-              </div>
-            </div>
-            <div class="acc-save"><button class="btn btn-primary" type="submit">Save profile</button><span class="muted" id="saveNote">${a.savedAt ? `Last saved ${new Date(a.savedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : ""}</span></div>
-          </form>
+    const tabs = [
+      ["profile", "My Profile", icon.user, ""],
+      ["address", "Address", icon.pin, ""],
+      ["orders", "My Orders", icon.bag, orders.length],
+      ["wishlist", "Wishlist", icon.heart, wish.length]
+    ];
+    if (!tabs.some(t => t[0] === tab)) tab = "profile";
+    const pct = Math.round([a.name || u.name, a.phone, a.line1, a.city, a.pincode, a.state].filter(Boolean).length / 6 * 100);
+    const hasAddress = a.line1 && a.city && a.pincode;
+    const status = o => o.demo ? ["Demo", "demo"] : o.method === "cod" ? ["Cash on Delivery", "cod"] : o.method === "upi" ? ["UPI – verifying", "cod"] : ["Paid", "paid"];
+    document.title = `My Account — ${CFG.brand}`;
 
-          <div class="panel" id="acc-orders">
-            <h3>My orders</h3>
-            ${orders.length ? `<div class="order-list">${orders.map(o => { const [label, cls] = status(o); return `
-              <div class="order-row">
-                <div><b>${esc(o.orderNumber)}</b><span class="muted">${new Date(o.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span></div>
-                <div class="order-items">${(o.items || []).map(i => `${esc(i.name)} × ${i.qty}`).join(", ") || "—"}</div>
-                <div class="order-end"><b>${money(o.total)}</b><span class="pill ${cls}">${label}</span></div>
-              </div>`; }).join("")}</div>
-              <p class="muted" style="font-size:.8rem;margin-bottom:0">Orders placed on this device. For tracking, <a href="${waLink(`Hi! Please share the status of my order${orders[0] ? " " + orders[0].orderNumber : ""}.`)}" target="_blank" rel="noopener" style="color:var(--rose);font-weight:600">message us on WhatsApp</a>.</p>`
-              : `<div class="empty" style="padding:24px 0"><p>No orders yet.</p><a class="btn btn-primary" href="#/shop">Start shopping</a></div>`}
+    const panels = {
+      profile: `
+        <form class="acc-form" novalidate>
+          <div class="acc-head"><h2>Personal details</h2><p class="muted">Used for your orders and delivery updates.</p></div>
+          <div class="form-grid">
+            <label class="field">Full name<input name="name" required autocomplete="name" placeholder="Your full name" value="${esc(a.name || u.name || "")}"></label>
+            <label class="field">Mobile number<span class="with-cc"><span>+91</span><input name="phone" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" autocomplete="tel-national" placeholder="10-digit mobile" value="${esc(a.phone || "")}"></span></label>
+            <label class="field">Email<input type="email" value="${esc(u.email)}" readonly><small class="hint">From your Google account</small></label>
+            <label class="field">Birthday <small class="hint">(optional — for a birthday surprise)</small><input name="birthday" type="date" value="${esc(a.birthday || "")}"></label>
           </div>
+          <div class="acc-actions"><button class="btn btn-primary" type="submit">Save details</button><span class="save-note muted"></span></div>
+        </form>`,
+      address: `
+        <form class="acc-form" novalidate>
+          <div class="acc-head"><h2>Delivery address</h2><p class="muted">We'll fill this in for you at checkout.</p></div>
+          ${hasAddress ? `<div class="addr-card"><span class="pill paid">Default</span><b>${esc(a.name || u.name)}</b><span>${esc([a.line1, a.line2].filter(Boolean).join(", "))}</span><span>${esc(a.city)}, ${esc(a.state || "")} – ${esc(a.pincode)}</span>${a.phone ? `<span>Mobile: +91 ${esc(a.phone)}</span>` : ""}</div>` : ""}
+          <div class="form-grid">
+            <label class="field full">House / flat no., building, street<input name="line1" required autocomplete="address-line1" placeholder="e.g. 12, Rose Apartments, MG Road" value="${esc(a.line1 || "")}"></label>
+            <label class="field full">Area, landmark <small class="hint">(optional)</small><input name="line2" autocomplete="address-line2" placeholder="e.g. Near City Mall" value="${esc(a.line2 || "")}"></label>
+            <label class="field">City<input name="city" required autocomplete="address-level2" placeholder="City" value="${esc(a.city || "")}"></label>
+            <label class="field">PIN code<input name="pincode" required inputmode="numeric" pattern="[1-9][0-9]{5}" maxlength="6" autocomplete="postal-code" placeholder="6 digits" value="${esc(a.pincode || "")}"></label>
+            <label class="field full">State<select name="state" required>${STATES.map(s => `<option ${a.state === s ? "selected" : ""} value="${s}">${s || "Select state"}</option>`).join("")}</select></label>
+          </div>
+          <div class="acc-actions"><button class="btn btn-primary" type="submit">${hasAddress ? "Update address" : "Save address"}</button><span class="save-note muted"></span></div>
+        </form>`,
+      orders: `
+        <div class="acc-head"><h2>My orders</h2><p class="muted">Orders placed on this device.</p></div>
+        ${orders.length ? `<div class="order-list">${orders.map(o => { const [label, cls] = status(o); return `
+          <div class="order-row">
+            <div class="order-thumbs">${(o.items || []).slice(0, 3).map(i => { const p = byId(i.id); return `<img src="${p ? img(p) : placeholder("rings")}" alt="">`; }).join("")}</div>
+            <div class="order-info"><b>${esc(o.orderNumber)}</b><span class="muted">${new Date(o.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} · ${(o.items || []).reduce((s, i) => s + i.qty, 0)} item(s)</span>
+              <span class="order-items">${(o.items || []).map(i => `${esc(i.name)} × ${i.qty}`).join(", ")}</span></div>
+            <div class="order-end"><b>${money(o.total)}</b><span class="pill ${cls}">${label}</span></div>
+          </div>`; }).join("")}</div>
+          <a class="btn btn-wa acc-help" target="_blank" rel="noopener" href="${waLink(`Hi! Please share the status of my order ${orders[0].orderNumber}.`)}">Track an order on WhatsApp</a>`
+        : `<div class="acc-empty"><div class="big">🛍️</div><p>You haven't placed an order yet.</p><a class="btn btn-primary" href="#/shop">Start shopping</a></div>`}`,
+      wishlist: `
+        <div class="acc-head"><h2>Wishlist</h2><p class="muted">Pieces you've saved with ♡.</p></div>
+        ${wish.length ? `<div class="grid grid-sm">${wish.map(card).join("")}</div>`
+        : `<div class="acc-empty"><div class="big">💖</div><p>Nothing saved yet. Tap the heart on any piece.</p><a class="btn btn-primary" href="#/shop">Browse jewellery</a></div>`}`
+    };
 
-          <div class="panel" id="acc-wish">
-            <h3>Wishlist</h3>
-            ${wish.length ? `<div class="grid grid-sm">${wish.map(card).join("")}</div>` : `<div class="empty" style="padding:24px 0"><p>Tap the ♡ on any piece to save it here.</p></div>`}
+    app.innerHTML = `
+      <section class="container acc-wrap">
+        <div class="acc-hero">
+          <div class="acc-id">
+            ${u.picture ? `<img class="acc-avatar" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<div class="acc-avatar acc-initial">${esc((u.name || "A")[0].toUpperCase())}</div>`}
+            <div class="acc-id-text"><span class="acc-kicker">My Account</span><h1>Hi, ${esc(firstName(u) || "there")}!</h1><p>${esc(u.email)}</p></div>
+          </div>
+          <div class="acc-hero-side">
+            <div class="acc-complete"><span>Profile ${pct}% complete</span><div class="acc-meter"><i style="width:${pct}%"></i></div></div>
+            <button class="acc-signout" id="signOutBtn" type="button">Sign out</button>
           </div>
         </div>
+        <nav class="acc-tabs" aria-label="Account sections">
+          ${tabs.map(([id, label, ic, n]) => `<a href="#/account/${id}" class="${id === tab ? "on" : ""}" ${id === tab ? 'aria-current="page"' : ""}>${ic}<span>${label}</span>${n !== "" ? `<b>${n}</b>` : ""}</a>`).join("")}
+        </nav>
+        <div class="acc-panel">${panels[tab]}</div>
       </section>`;
 
-    $$(".acc-nav [data-jump]").forEach(b => b.onclick = () => $("#" + b.dataset.jump).scrollIntoView({ behavior: "smooth", block: "start" }));
     $("#signOutBtn").onclick = signOut;
-    $("#profileForm").onsubmit = async e => {
+    const form = $(".acc-form");
+    if (form) form.onsubmit = async e => {
       e.preventDefault();
-      const f = e.target;
-      const bad = $$("input", f).find(i => !i.checkValidity());
+      const bad = $$("input[name], select[name]", form).find(i => !i.checkValidity());
       if (bad) { bad.focus(); toast("Please check: " + bad.closest("label").childNodes[0].textContent.trim()); return; }
-      const d = Object.fromEntries(new FormData(f));
-      const saved = { ...store.get("address", {}), ...d, email: u.email, savedAt: new Date().toISOString() };
+      const saved = { ...store.get("address", {}), ...Object.fromEntries(new FormData(form)), email: u.email, savedAt: new Date().toISOString() };
       store.set("address", saved);
-      const note = $("#saveNote");
-      note.textContent = "Saved ✓"; toast("Profile saved ✨");
+      if (saved.name) { state.user.name = saved.name; store.set("user", state.user); }
+      toast("Saved ✨");
+      const note = $(".save-note", form); note.textContent = "Saved ✓";
       const cred = store.get("cred", null);
       if (CFG.orderApiUrl && cred) {
         try {
-          await api({ action: "profile", credential: cred, profile: { name: d.name, phone: d.phone, address: [d.line1, d.line2, d.city, d.state, d.pincode].filter(Boolean).join(", ") } });
+          await api({ action: "profile", credential: cred, profile: { name: saved.name, phone: saved.phone, birthday: saved.birthday || "",
+            address: [saved.line1, saved.line2, saved.city, saved.state, saved.pincode].filter(Boolean).join(", ") } });
           note.textContent = "Saved ✓ and synced to the store";
         } catch { note.textContent = "Saved ✓ (sign in again to sync with the store)"; }
       }
+      setTimeout(() => viewAccount(tab), 900);
     };
   }
 
@@ -777,13 +921,10 @@
           callback: resp => {
             const p = decodeJwt(resp.credential); if (!p) return toast("Sign-in failed");
             state.user = { name: p.name || p.email, email: p.email, picture: p.picture };
-            store.set("user", state.user); store.set("cred", resp.credential); renderAccountIcon(); closeAll();
+            store.set("user", state.user); store.set("cred", resp.credential);
             // Record the sign-in in the "Customers" tab of your Google Sheet (needs orderApiUrl)
             if (CFG.orderApiUrl) api({ action: "login", credential: resp.credential }).catch(err => console.warn("Customer log failed:", err.message));
-            toast(`Welcome, ${esc(state.user.name.split(" ")[0])}! ✨`);
-            if (location.hash.startsWith("#/checkout")) viewCheckout();
-            else if (location.hash.startsWith("#/account")) viewAccount();
-            else location.hash = "#/account";
+            afterLogin();
           }
         });
         ok();
@@ -806,8 +947,9 @@
     else if (parts[0] === "product") viewProduct(decodeURIComponent(parts[1] || ""));
     else if (parts[0] === "checkout") viewCheckout();
     else if (parts[0] === "success") viewSuccess();
+    else if (parts[0] === "pay") viewPay();
     else if (parts[0] === "page") viewPage(parts[1]);
-    else if (parts[0] === "account") viewAccount();
+    else if (parts[0] === "account") viewAccount(parts[1]);
     else viewNotFound();
     const cat = params.get("cat");
     $$("#catNav a").forEach(a => a.classList.toggle("active", parts[0] === "shop" && a.dataset.cat === cat));
@@ -859,6 +1001,5 @@
     state.products = await loadProducts();
     state.cart = state.cart.filter(l => byId(l.id));
     renderChrome(); renderCart(); renderWish(); updateBadges(); route();
-    if (CFG.googleClientId && !state.user) initGoogle().catch(() => {});
   })();
 })();
