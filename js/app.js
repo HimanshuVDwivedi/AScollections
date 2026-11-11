@@ -71,7 +71,7 @@
       <g transform="${variant ? "rotate(-8 200 200) translate(0 10)" : ""}">${glyphs[category] || glyphs.rings}</g></svg>`;
     return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   }
-  const img = (p, i = 0) => (p.images && p.images[i]) || placeholder(p.category, i);
+  const img = (p, i = 0) => (p.images && p.images.length ? (p.images[i] || p.images[0]) : placeholder(p.category, i));
 
   /* ---------- Products: from Google Sheet (CSV) or products.js ---------- */
   function parseCSV(text) {
