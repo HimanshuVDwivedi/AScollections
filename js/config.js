@@ -13,7 +13,7 @@ window.AS_CONFIG = {
   supportEmail: "care@asjewels.com",
   supportPhone: "+91 99999 99999",
   businessAddress: "Your registered business address, City, State – PIN",
-  instagram: "https://instagram.com/",
+  instagram: "https://www.instagram.com/as_premium_collections_/",
   facebook: "https://facebook.com/",
 
   /* ---------- Offers ---------- */
