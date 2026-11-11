@@ -52,7 +52,7 @@ function doPost(e) {
       case 'createOrder':   return json(createOrder(body));
       case 'verify':        return json(verifyPayment(body));
       case 'paymentFailed': return json(markPaymentFailed(body));
-      case 'cod':           return json(createCodOrder(body));
+      case 'cod':           return json({ ok: false, error: 'Cash on Delivery is not available. Please pay online or by UPI.' }); // prepaid only
       case 'upiOrder':      return json(createUpiOrder(body));
       case 'login':         return json(saveCustomer(body));
       case 'profile':       return json(saveProfile(body));
@@ -140,9 +140,8 @@ function priceCart(items, couponCode) {
 
 /* ---------- Razorpay ---------- */
 function createOrder(body) {
-  const props = PropertiesService.getScriptProperties();
-  const keyId = props.getProperty('RAZORPAY_KEY_ID');
-  const secret = props.getProperty('RAZORPAY_KEY_SECRET');
+  const keys = razorpayKeys();
+  const keyId = keys.id, secret = keys.secret;
   if (!keyId || !secret) throw new Error('Online payment is not set up yet. Please choose Cash on Delivery.');
 
   const priced = priceCart(body.items, body.coupon);
@@ -155,15 +154,38 @@ function createOrder(body) {
     muteHttpExceptions: true
   });
   const rzp = JSON.parse(res.getContentText());
-  if (res.getResponseCode() !== 200) throw new Error(rzp.error ? rzp.error.description : 'Razorpay error');
+  if (res.getResponseCode() !== 200) {
+    console.error('Razorpay order failed', res.getResponseCode(), res.getContentText());
+    if (res.getResponseCode() === 401) throw new Error('Online payment is unavailable right now. Please use UPI or Cash on Delivery.');
+    throw new Error(rzp.error ? rzp.error.description : 'Razorpay error');
+  }
 
   logOrder(orderNumber, 'Awaiting payment', 'Pending', 'Online (Razorpay)', priced, body, rzp.id);
   logActivity('Checkout started', (body.customer || {}).email || (body.customer || {}).phone, orderNumber, priced.total, 'Online payment');
   return { ok: true, orderNumber: orderNumber, razorpayOrderId: rzp.id, amount: rzp.amount, keyId: keyId };
 }
 
+// Reads the Razorpay keys from Script Properties, ignoring stray spaces or line breaks.
+function razorpayKeys() {
+  const props = PropertiesService.getScriptProperties();
+  const clean = v => String(v || '').replace(/\s+/g, '');
+  return { id: clean(props.getProperty('RAZORPAY_KEY_ID')), secret: clean(props.getProperty('RAZORPAY_KEY_SECRET')) };
+}
+
+// Run this from the editor (choose testRazorpay → Run) to check your keys. Look at the Execution log.
+function testRazorpay() {
+  const k = razorpayKeys();
+  if (!k.id || !k.secret) { console.log('❌ Missing: add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Project Settings → Script Properties.'); return; }
+  console.log('Key ID in use: ' + k.id + '  (' + (k.id.indexOf('rzp_test_') === 0 ? 'TEST mode' : k.id.indexOf('rzp_live_') === 0 ? 'LIVE mode' : 'does not start with rzp_test_ or rzp_live_ — check it') + ')');
+  console.log('Secret length: ' + k.secret.length + ' characters');
+  const res = UrlFetchApp.fetch('https://api.razorpay.com/v1/orders?count=1', {
+    headers: { Authorization: 'Basic ' + Utilities.base64Encode(k.id + ':' + k.secret) }, muteHttpExceptions: true });
+  if (res.getResponseCode() === 200) console.log('✅ Keys work. Razorpay accepted them.');
+  else console.log('❌ Razorpay said ' + res.getResponseCode() + ': ' + res.getContentText() + '\n→ The Key ID and Key Secret are not a matching pair. Regenerate the key in Razorpay (same mode) and paste both again.');
+}
+
 function verifyPayment(body) {
-  const secret = PropertiesService.getScriptProperties().getProperty('RAZORPAY_KEY_SECRET');
+  const secret = razorpayKeys().secret;
   const expected = toHex(Utilities.computeHmacSha256Signature(body.razorpay_order_id + '|' + body.razorpay_payment_id, secret));
   if (expected !== String(body.razorpay_signature)) {
     logActivity('Payment failed', '', '', '', 'Signature check failed for ' + body.razorpay_order_id);
