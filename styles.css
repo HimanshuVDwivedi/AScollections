@@ -455,6 +455,15 @@ details.acc p, details.acc ul { color: var(--muted); font-size: .92rem; margin: 
 .link-btn { border: 0; background: none; padding: 0; color: var(--rose); font-weight: 600; text-decoration: underline; cursor: pointer; }
 .pulse { animation: bump .8s var(--ease) 2; }
 
+/* ---------- PIN code + prepaid ---------- */
+.pin-hint { min-height: 1em; }
+.pin-hint.ok { color: var(--emerald); font-weight: 600; }
+.pin-hint.bad { color: #b42318; font-weight: 600; }
+select.flash { animation: flashSel 1s ease; }
+@keyframes flashSel { 0% { box-shadow: 0 0 0 4px var(--emerald-soft); border-color: var(--gold); } 100% { box-shadow: none; } }
+.prepaid-note { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.prepaid-note svg { width: 16px; height: 16px; color: var(--emerald); flex: none; }
+
 /* ---------- Footer ---------- */
 .site-footer { margin-top: 70px; background: var(--plum); color: #ffe8ec; padding-top: 40px; }
 .site-footer .trust-item { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .1); }
