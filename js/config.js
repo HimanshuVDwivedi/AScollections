@@ -32,22 +32,22 @@ window.AS_CONFIG = {
   saleEndsAt: "2026-12-31T23:59:59+05:30",  // countdown in the hero; "" to hide
 
   /* ---------- Products ----------
-     Option A (simplest): edit js/products.js
-     Option B (free + easy updates): Google Sheet → File → Share → Publish to web
-        → choose the "Products" sheet → "Comma-separated values (.csv)" → paste the link here. */
+     Products come from your "AS Jewels Store" Google Sheet through orderApiUrl below.
+     productsSheetCsvUrl is not needed. */
   productsSheetCsvUrl: "",
 
-  /* ---------- Google Sign-In ----------
-     Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web)
-     Add your site under "Authorized JavaScript origins". */
+  /* ---------- Google Sign-In ---------- */
   googleClientId: "453829452781-s09bh7dl105thflq2acoa0u70ko5f7l5.apps.googleusercontent.com",
 
-  /* ---------- Payments (Razorpay) ----------
+  /* ---------- UPI QR payment at checkout ----------
+     Set your UPI ID in the Google Sheet → "Settings" tab (this is only a fallback). */
+  upi: { id: "", name: "AS Jewels" },
+
+  /* ---------- Payments + store backend ----------
      razorpayKeyId: your PUBLIC key (rzp_test_... while testing, rzp_live_... later).
-     orderApiUrl: the Web App URL of apps-script/Code.gs (keeps your SECRET key safe).
-     Leave orderApiUrl empty to run the shop in DEMO mode (no real payment). */
+     orderApiUrl: the Web App URL of your Apps Script (connects the site to your Sheet). */
   razorpayKeyId: "",
-  orderApiUrl: "",
+  orderApiUrl: "https://script.google.com/macros/s/AKfycbw3LftzhZF9GD8eijT2eIXuI1vadtdn-a60yIlQpJDxfsNHa_SlN-G2eVB76v_izm8/exec",
 
   /* ---------- Customer reviews (only add real ones) ---------- */
   reviews: [
