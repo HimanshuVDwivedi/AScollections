@@ -50,6 +50,67 @@
 
   const STATES = ["", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu & Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal", "Andaman & Nicobar", "Chandigarh", "Dadra & Nagar Haveli and Daman & Diu", "Lakshadweep"];
 
+  /* ---------- PIN code → state (offline lookup by postal circle; India Post API adds city) ---------- */
+  const PIN3 = { "160": "Chandigarh", "194": "Ladakh", "246": "Uttarakhand", "248": "Uttarakhand", "249": "Uttarakhand", "263": "Uttarakhand",
+    "403": "Goa", "737": "Sikkim", "744": "Andaman & Nicobar", "682": "Kerala", "790": "Arunachal Pradesh", "791": "Arunachal Pradesh", "792": "Arunachal Pradesh",
+    "793": "Meghalaya", "794": "Meghalaya", "795": "Manipur", "796": "Mizoram", "797": "Nagaland", "798": "Nagaland", "799": "Tripura",
+    "811": "Bihar", "812": "Bihar", "813": "Bihar", "814": "Jharkhand", "815": "Jharkhand", "816": "Jharkhand",
+    "821": "Bihar", "823": "Bihar", "824": "Bihar", "822": "Jharkhand", "825": "Jharkhand", "826": "Jharkhand", "827": "Jharkhand", "828": "Jharkhand", "829": "Jharkhand" };
+  const PIN3_UNSURE = ["247", "262", "396", "605", "609", "533"];   // shared by two states — ask India Post
+  const PIN2 = { "11": "Delhi", "12": "Haryana", "13": "Haryana", "14": "Punjab", "15": "Punjab", "16": "Punjab", "17": "Himachal Pradesh",
+    "18": "Jammu & Kashmir", "19": "Jammu & Kashmir", "20": "Uttar Pradesh", "21": "Uttar Pradesh", "22": "Uttar Pradesh", "23": "Uttar Pradesh",
+    "24": "Uttar Pradesh", "25": "Uttar Pradesh", "26": "Uttar Pradesh", "27": "Uttar Pradesh", "28": "Uttar Pradesh",
+    "30": "Rajasthan", "31": "Rajasthan", "32": "Rajasthan", "33": "Rajasthan", "34": "Rajasthan",
+    "36": "Gujarat", "37": "Gujarat", "38": "Gujarat", "39": "Gujarat", "40": "Maharashtra", "41": "Maharashtra", "42": "Maharashtra", "43": "Maharashtra", "44": "Maharashtra",
+    "45": "Madhya Pradesh", "46": "Madhya Pradesh", "47": "Madhya Pradesh", "48": "Madhya Pradesh", "49": "Chhattisgarh",
+    "50": "Telangana", "51": "Andhra Pradesh", "52": "Andhra Pradesh", "53": "Andhra Pradesh", "56": "Karnataka", "57": "Karnataka", "58": "Karnataka", "59": "Karnataka",
+    "60": "Tamil Nadu", "61": "Tamil Nadu", "62": "Tamil Nadu", "63": "Tamil Nadu", "64": "Tamil Nadu", "67": "Kerala", "68": "Kerala", "69": "Kerala",
+    "70": "West Bengal", "71": "West Bengal", "72": "West Bengal", "73": "West Bengal", "74": "West Bengal", "75": "Odisha", "76": "Odisha", "77": "Odisha",
+    "78": "Assam", "80": "Bihar", "81": "Bihar", "82": "Bihar", "83": "Jharkhand", "84": "Bihar", "85": "Bihar" };
+  const stateFromPin = pin => PIN3_UNSURE.includes(pin.slice(0, 3)) ? "" : PIN3[pin.slice(0, 3)] || PIN2[pin.slice(0, 2)] || "";
+  const STATE_ALIAS = { "chattisgarh": "Chhattisgarh", "pondicherry": "Puducherry", "orissa": "Odisha", "uttaranchal": "Uttarakhand",
+    "andaman & nicobar islands": "Andaman & Nicobar", "dadra & nagar haveli": "Dadra & Nagar Haveli and Daman & Diu", "daman & diu": "Dadra & Nagar Haveli and Daman & Diu" };
+  const matchState = s => { const k = String(s || "").toLowerCase().replace(/\band\b/g, "&").replace(/\s+/g, " ").trim(); return STATES.find(x => x.toLowerCase() === k) || STATE_ALIAS[k] || ""; };
+  const pinCache = {};
+  async function lookupPin(pin) {
+    if (pinCache[pin]) return pinCache[pin];
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 4000);
+      const res = await fetch("https://api.postalpincode.in/pincode/" + pin, { signal: ctl.signal }); clearTimeout(t);
+      const d = (await res.json())[0];
+      if (d && d.Status === "Success" && d.PostOffice?.length) {
+        const po = d.PostOffice[0];
+        return (pinCache[pin] = { valid: true, state: matchState(po.State) || stateFromPin(pin), city: po.District || "" });
+      }
+      if (d && d.Status === "Error") return (pinCache[pin] = { valid: false });
+    } catch {}
+    return { valid: true, state: stateFromPin(pin), city: "" };   // offline fallback
+  }
+  function setupPincode(form) {
+    if (!form) return;
+    const pin = $('input[name="pincode"]', form), st = $('select[name="state"]', form), city = $('input[name="city"]', form);
+    if (!pin || !st) return;
+    let hint = pin.parentElement.querySelector(".pin-hint");
+    if (!hint) { hint = document.createElement("small"); hint.className = "hint pin-hint"; pin.insertAdjacentElement("afterend", hint); }
+    const check = async () => {
+      pin.value = pin.value.replace(/\D/g, "").slice(0, 6);
+      pin.setCustomValidity("");
+      if (pin.value.length < 6) { hint.textContent = pin.value ? `${6 - pin.value.length} more digit${pin.value.length === 5 ? "" : "s"}` : ""; hint.className = "hint pin-hint"; return; }
+      if (!/^[1-9]\d{5}$/.test(pin.value)) { hint.textContent = "PIN code can't start with 0"; hint.className = "hint pin-hint bad"; pin.setCustomValidity("Invalid PIN"); return; }
+      const v = pin.value; hint.textContent = "Checking…"; hint.className = "hint pin-hint";
+      const r = await lookupPin(v);
+      if (pin.value !== v) return;
+      if (!r.valid) { hint.textContent = "This PIN code doesn't exist. Please check it."; hint.className = "hint pin-hint bad"; pin.setCustomValidity("Invalid PIN"); return; }
+      if (r.state) { st.value = r.state; st.classList.remove("flash"); void st.offsetWidth; st.classList.add("flash"); }
+      if (city && !city.value.trim() && r.city) city.value = r.city;
+      hint.textContent = r.state ? `📍 ${r.city ? r.city + ", " : ""}${r.state}` : "Please choose your state";
+      hint.className = "hint pin-hint ok";
+    };
+    pin.addEventListener("input", check);
+    pin.addEventListener("keydown", e => { if (e.key.length === 1 && !/\d/.test(e.key) && !e.ctrlKey && !e.metaKey) e.preventDefault(); });
+    if (pin.value.length === 6) check();
+  }
+
   /* ---------- Placeholder art (until real photos are uploaded) ---------- */
   const glyphs = {
     rings: '<circle cx="200" cy="230" r="78" fill="none" stroke="url(#m)" stroke-width="18"/><path d="M200 108l34 34-34 40-34-40z" fill="url(#g)"/>',
@@ -215,7 +276,7 @@
     [icon.shield, "Certified Quality", "Authenticity card with every piece"],
     [icon.return, "7-Day Easy Returns", "No-fuss exchange or refund"],
     [icon.truck, "Free Shipping", `On orders above ${money(CFG.freeShippingAbove)}`],
-    [icon.lock, "Secure Payments", "UPI, cards & COD via Razorpay"]
+    [icon.lock, "Secure Payments", "UPI, cards & net banking"]
   ].map(([i, t, s]) => `<div class="trust-item"><div class="ic">${i}</div><div><strong>${t}</strong><span>${s}</span></div></div>`).join("");
 
   /* ---------- Product card ---------- */
@@ -481,7 +542,7 @@
     const demo = !CFG.orderApiUrl;
     const onlineOn = demo || !!CFG.razorpayKeyId;
     const upiOn = !!upiInfo().id;
-    const firstPay = upiOn ? "upi" : onlineOn ? "online" : "cod";
+    const firstPay = upiOn ? "upi" : onlineOn ? "online" : "";   // prepaid only — no Cash on Delivery
     if (!sessionStorage.getItem("asj_ckv")) { try { sessionStorage.setItem("asj_ckv", "1"); } catch {} track("Viewed checkout", t.lines.map(l => `${l.p.name} × ${l.qty}`).join(", "), t.total); }
     app.innerHTML = `
       <section class="container page-head"><div class="crumbs"><a href="#/">Home</a> / Checkout</div><h1>Checkout</h1></section>
@@ -512,7 +573,8 @@
             <h3><span class="step-no">3</span> Payment</h3>
             ${upiOn ? `<label class="pay-opt pay-upi"><input type="radio" name="pay" value="upi" ${firstPay === "upi" ? "checked" : ""}><div><b>Pay by UPI <span class="pay-tag">Recommended</span></b><small>Scan the QR or open GPay, PhonePe, Paytm · then share the payment screenshot on WhatsApp</small></div><span class="upi-apps" aria-hidden="true">UPI</span></label>` : ""}
             ${onlineOn ? `<label class="pay-opt"><input type="radio" name="pay" value="online" ${firstPay === "online" ? "checked" : ""}><div><b>Pay online</b><small>Cards, net banking, wallets — secured by Razorpay</small></div></label>` : ""}
-            ${CFG.codAvailable || firstPay === "cod" ? `<label class="pay-opt"><input type="radio" name="pay" value="cod" ${firstPay === "cod" ? "checked" : ""}><div><b>Cash on Delivery</b><small>Pay when your order arrives</small></div></label>` : ""}
+            ${firstPay ? `<p class="muted pay-small prepaid-note">${icon.lock} All orders are prepaid. Your payment is safe and your order ships faster.</p>`
+              : `<div class="demo-banner">Online payment is being set up. To order now, <a href="${waLink("Hi! I'd like to place an order.")}" target="_blank" rel="noopener" style="font-weight:700;text-decoration:underline">message us on WhatsApp</a>.</div>`}
           </div>
         </form>
         <aside class="summary">
@@ -540,6 +602,8 @@
       state.coupon = code; store.set("coupon", code); toast(`Coupon ${code} applied 🎉`); viewCheckout();
     };
     $("#placeOrder").onclick = placeOrder;
+    if (!firstPay) { $("#placeOrder").disabled = true; }
+    setupPincode($("#checkoutForm"));
   }
 
   /* ---------- Placing an order ---------- */
@@ -586,14 +650,12 @@
         }
         return finishOrder({ ...order, method: "upi", customerName: c.name }, "#/pay");
       }
+      if (!c.pay) { toast("Please choose a payment method"); return reset(); }
       if (!CFG.orderApiUrl) {               // DEMO MODE
         await new Promise(r => setTimeout(r, 900));
         return finishOrder({ orderNumber: "DEMO-" + Date.now().toString(36).toUpperCase(), total: t.total, method: c.pay, demo: true });
       }
-      if (c.pay === "cod") {
-        const r = await api({ action: "cod", items, coupon: state.coupon, customer });
-        return finishOrder({ orderNumber: r.orderNumber, total: r.amount / 100, method: "cod" });
-      }
+      if (c.pay !== "online") { toast("Please choose a payment method"); return reset(); }
       await loadRazorpay();
       const r = await api({ action: "createOrder", items, coupon: state.coupon, customer });
       const rzp = new window.Razorpay({
@@ -709,8 +771,8 @@
   /* ---------- Policy pages (edit text before going live) ---------- */
   const pages = {
     shipping: ["Shipping Policy", `<p>We ship across India. Orders are dispatched within 1–2 working days and usually arrive within 3–7 working days, depending on your PIN code.</p><p>Shipping is free on orders above ${money(CFG.freeShippingAbove)}. A fee of ${money(CFG.shippingFee)} applies to smaller orders. You'll receive tracking details by WhatsApp/email once your order ships.</p>`],
-    returns: ["Returns & Refunds", `<p>If you're not happy with your purchase, you can request a return within 7 days of delivery. Items must be unused, in original packaging, with the authenticity card.</p><p>Earrings and nose pins cannot be returned for hygiene reasons unless they arrive damaged. Refunds are issued to the original payment method within 5–7 working days after we receive and check the item. For COD orders we refund to your bank account or UPI.</p><p>To start a return, message us on WhatsApp with your order number.</p>`],
-    terms: ["Terms & Conditions", `<p>This website is operated by ${esc(CFG.brand)}. By placing an order you agree to these terms.</p><h2>Pricing</h2><p>All prices are in Indian Rupees and include applicable taxes. We may correct pricing errors and cancel affected orders with a full refund.</p><h2>Orders</h2><p>An order is confirmed when payment succeeds (or, for COD, when we confirm by phone/WhatsApp). We may cancel orders that look fraudulent.</p><h2>Product images</h2><p>We photograph every piece carefully, but colours may vary slightly between screens.</p><h2>Governing law</h2><p>These terms are governed by the laws of India.</p>`],
+    returns: ["Returns & Refunds", `<p>If you're not happy with your purchase, you can request a return within 7 days of delivery. Items must be unused, in original packaging, with the authenticity card.</p><p>Earrings and nose pins cannot be returned for hygiene reasons unless they arrive damaged. Refunds are issued to the original payment method within 5–7 working days after we receive and check the item. For UPI payments we refund to the same UPI ID or bank account.</p><p>To start a return, message us on WhatsApp with your order number.</p>`],
+    terms: ["Terms & Conditions", `<p>This website is operated by ${esc(CFG.brand)}. By placing an order you agree to these terms.</p><h2>Pricing</h2><p>All prices are in Indian Rupees and include applicable taxes. We may correct pricing errors and cancel affected orders with a full refund.</p><h2>Orders</h2><p>All orders are prepaid. An order is confirmed once we receive your payment (for UPI, after we check your payment proof). We may cancel orders that look fraudulent.</p><h2>Product images</h2><p>We photograph every piece carefully, but colours may vary slightly between screens.</p><h2>Governing law</h2><p>These terms are governed by the laws of India.</p>`],
     privacy: ["Privacy Policy", `<p>We collect only what we need to fulfil your order: your name, phone, email and address. If you sign in with Google we receive your name, email and profile photo.</p><p>Payments are processed by Razorpay; we never see or store your card or UPI details. We do not sell your data. We use your contact details to send order updates and, if you opt in, occasional offers.</p><p>To have your data deleted, email ${esc(CFG.supportEmail)}.</p>`],
     contact: ["Contact Us", `<p>We'd love to help you choose the perfect piece.</p><ul><li>WhatsApp / Phone: ${esc(CFG.supportPhone)}</li><li>Email: ${esc(CFG.supportEmail)}</li><li>Address: ${esc(CFG.businessAddress)}</li></ul><p><a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink("Hi AS Jewels!")}">Chat on WhatsApp</a></p>`]
   };
@@ -889,6 +951,7 @@
 
     $("#signOutBtn").onclick = signOut;
     const form = $(".acc-form");
+    if (tab === "address") setupPincode(form);
     if (form) form.onsubmit = async e => {
       e.preventDefault();
       const bad = $$("input[name], select[name]", form).find(i => !i.checkValidity());
