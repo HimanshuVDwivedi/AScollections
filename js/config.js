@@ -40,7 +40,7 @@ window.AS_CONFIG = {
   /* ---------- Google Sign-In ----------
      Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web)
      Add your site under "Authorized JavaScript origins". */
-  googleClientId: "",
+  googleClientId: "453829452781-s09bh7dl105thflq2acoa0u70ko5f7l5.apps.googleusercontent.com",
 
   /* ---------- Payments (Razorpay) ----------
      razorpayKeyId: your PUBLIC key (rzp_test_... while testing, rzp_live_... later).
