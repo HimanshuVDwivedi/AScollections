@@ -44,6 +44,7 @@
     check: '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
     user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
     pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/></svg>',
     bag: '<svg viewBox="0 0 24 24"><path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
     sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg>'
   };
@@ -120,6 +121,9 @@
     bracelets: '<ellipse cx="200" cy="200" rx="120" ry="70" fill="none" stroke="url(#m)" stroke-width="16" stroke-dasharray="20 8"/><circle cx="200" cy="130" r="18" fill="url(#g)"/>',
     bangles: '<ellipse cx="180" cy="200" rx="110" ry="60" fill="none" stroke="url(#m)" stroke-width="20"/><ellipse cx="220" cy="215" rx="110" ry="60" fill="none" stroke="url(#g)" stroke-width="10"/>',
     anklets: '<path d="M80 170c40 70 200 70 240 0" fill="none" stroke="url(#m)" stroke-width="5" stroke-dasharray="3 9" stroke-linecap="round"/><circle cx="140" cy="225" r="11" fill="url(#g)"/><circle cx="200" cy="238" r="11" fill="url(#g)"/><circle cx="260" cy="225" r="11" fill="url(#g)"/>',
+    traditional: '<path d="M120 70c30 60 130 60 160 0" fill="none" stroke="url(#m)" stroke-width="6"/><circle cx="200" cy="140" r="26" fill="url(#g)"/><path d="M150 175h100l-20 70h-60z" fill="url(#m)"/><path d="M150 245c10 40 90 40 100 0" fill="url(#g)"/><circle cx="160" cy="290" r="7" fill="url(#m)"/><circle cx="200" cy="300" r="7" fill="url(#m)"/><circle cx="240" cy="290" r="7" fill="url(#m)"/>',
+    ad: '<path d="M200 90 260 150 200 290 140 150Z" fill="url(#g)"/><path d="M140 150h120M170 150l30-60 30 60M200 290l-30-140M200 290l30-140" stroke="#fff" stroke-width="3" fill="none" opacity=".7"/><circle cx="120" cy="110" r="10" fill="url(#m)"/><circle cx="290" cy="220" r="12" fill="url(#m)"/><circle cx="110" cy="250" r="7" fill="url(#m)"/>',
+    hampers: '<rect x="110" y="170" width="180" height="140" rx="10" fill="url(#g)"/><rect x="100" y="140" width="200" height="40" rx="8" fill="url(#m)"/><rect x="190" y="140" width="20" height="170" fill="url(#m)"/><path d="M200 140c-30-50-80-40-60-10 10 14 60 10 60 10zm0 0c30-50 80-40 60-10-10 14-60 10-60 10z" fill="url(#m)"/>',
     sets: '<path d="M100 90c10 110 50 150 100 150s90-40 100-150" fill="none" stroke="url(#m)" stroke-width="10"/><path d="M200 230l28 30-28 44-28-44z" fill="url(#g)"/><circle cx="70" cy="280" r="16" fill="url(#g)"/><circle cx="330" cy="280" r="16" fill="url(#g)"/>'
   };
   function placeholder(category, variant = 0) {
@@ -133,6 +137,12 @@
     return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   }
   const img = (p, i = 0) => (p.images && p.images.length ? (p.images[i] || p.images[0]) : placeholder(p.category, i));
+
+  // Accepts friendly names typed in the Sheet ("Traditional Jewellery", "AD", "Hamper", "Ring") and maps them to category ids
+  const CAT_ALIAS = { "traditional jewellery": "traditional", "traditional jewelry": "traditional", "traditional": "traditional",
+    "ad jewellery": "ad", "ad jewelry": "ad", "american diamond": "ad", "ad": "ad", "hamper": "hampers", "hampers": "hampers", "gift hamper": "hampers", "gift hampers": "hampers",
+    "ring": "rings", "earring": "earrings", "necklace": "necklaces", "pendant": "pendants", "bracelet": "bracelets", "bangle": "bangles", "anklet": "anklets", "set": "sets" };
+  const normCat = c => { const k = String(c || "").trim().toLowerCase(); return CAT_ALIAS[k] || k; };
 
   /* ---------- Products: from Google Sheet (CSV) or products.js ---------- */
   function parseCSV(text) {
@@ -157,7 +167,7 @@
         const res = await fetch(CFG.orderApiUrl + "?action=products", { cache: "no-store" });
         const data = await res.json();
         if (data.settings) state.remote = data.settings;
-        if (data.ok && data.products?.length) return data.products.map(p => ({ ...p, images: (p.images || []).map(driveImg) }));
+        if (data.ok && data.products?.length) return data.products.map(p => ({ ...p, category: normCat(p.category), images: (p.images || []).map(driveImg) }));
       } catch (e) { console.warn("Could not load products from the store backend.", e); }
     }
     if (CFG.productsSheetCsvUrl) {
@@ -165,7 +175,7 @@
         const res = await fetch(CFG.productsSheetCsvUrl, { cache: "no-store" });
         const rows = parseCSV(await res.text());
         const list = rows.filter(r => r.id && r.name && (r.active || "yes").toLowerCase() !== "no").map(r => ({
-          id: r.id, name: r.name, category: (r.category || "rings").toLowerCase(),
+          id: r.id, name: r.name, category: normCat(r.category || "rings"),
           price: Number(r.price) || 0, mrp: Number(r.mrp) || Number(r.price) || 0,
           images: (r.images || "").split("|").map(s => s.trim()).filter(Boolean).map(driveImg),
           metal: r.metal, occasion: (r.occasion || "").toLowerCase(),
@@ -186,6 +196,17 @@
   });
   const upiLink = (u, amount, orderNo) => `upi://pay?pa=${encodeURIComponent(u.id).replace(/%40/g, "@")}&pn=${encodeURIComponent(u.name)}&am=${Number(amount).toFixed(2)}&cu=INR&tn=${encodeURIComponent("Order " + orderNo)}`;
   function loadScript(src) { return new Promise((ok, fail) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => fail(new Error("Could not load " + src)); document.head.appendChild(s); }); }
+
+  /* ---------- Share a product ---------- */
+  const productUrl = id => location.origin + location.pathname + "#/product/" + encodeURIComponent(id);
+  async function shareProduct(id) {
+    const p = byId(id); if (!p) return;
+    const url = productUrl(id), text = `${p.name} — ${money(p.price)} at ${CFG.brand} ✨`;
+    track("Shared product", `${p.name} (${p.id})`, p.price);
+    if (navigator.share) { try { await navigator.share({ title: p.name, text, url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+    try { await navigator.clipboard.writeText(url); toast(`Link copied 🔗 <a href="https://wa.me/?text=${encodeURIComponent(text + " " + url)}" target="_blank" rel="noopener">Share on WhatsApp</a>`); }
+    catch { toast(`<a href="https://wa.me/?text=${encodeURIComponent(text + " " + url)}" target="_blank" rel="noopener">Share on WhatsApp</a>`); }
+  }
 
   /* ---------- Activity log (goes to the "Activity" tab of your Sheet) ---------- */
   function track(event, details = "", amount = "") {
@@ -263,18 +284,18 @@
     $("#footCats").innerHTML = CATS.map(c => `<li><a href="#/shop?cat=${c.id}">${c.name}</a></li>`).join("");
     $("#footTagline").textContent = `${CFG.tagline}. Thoughtfully designed, carefully packed, delivered across India.`;
     $("#footContact").innerHTML = `
-      <li><a href="${waLink("Hi AS Jewels! I have a question.")}" target="_blank" rel="noopener">WhatsApp: ${esc(CFG.supportPhone)}</a></li>
+      <li><a href="${waLink(`Hi ${CFG.brand}! I have a question.`)}" target="_blank" rel="noopener">WhatsApp: ${esc(CFG.supportPhone)}</a></li>
       <li><a href="mailto:${esc(CFG.supportEmail)}">${esc(CFG.supportEmail)}</a></li>
       <li class="muted-light">${esc(CFG.businessAddress)}</li>
       <li><a href="${esc(CFG.instagram)}" target="_blank" rel="noopener">Instagram</a> · <a href="${esc(CFG.facebook)}" target="_blank" rel="noopener">Facebook</a></li>`;
     $("#footTrust").innerHTML = trustItems();
     $("#copyright").textContent = `© ${new Date().getFullYear()} ${CFG.brand} · ${CFG.domain}`;
-    $("#waFloat").href = waLink("Hi AS Jewels! I'd like some help choosing a piece.");
+    $("#waFloat").href = waLink(`Hi ${CFG.brand}! I'd like some help choosing a piece.`);
     renderAccountIcon();
   }
   const trustItems = () => [
     [icon.shield, "Certified Quality", "Authenticity card with every piece"],
-    [icon.return, "7-Day Easy Returns", "No-fuss exchange or refund"],
+    [icon.gift, "Gift-ready Packaging", "Beautifully packed, every order"],
     [icon.truck, "Free Shipping", `On orders above ${money(CFG.freeShippingAbove)}`],
     [icon.lock, "Secure Payments", "UPI, cards & net banking"]
   ].map(([i, t, s]) => `<div class="trust-item"><div class="ic">${i}</div><div><strong>${t}</strong><span>${s}</span></div></div>`).join("");
@@ -294,6 +315,7 @@
         </a>
         ${tag}
         <button class="wish ${wished ? "on" : ""}" data-act="wish" data-id="${esc(p.id)}" aria-label="Save to wishlist">${icon.heart}</button>
+        <button class="share-btn" data-act="share" data-id="${esc(p.id)}" aria-label="Share this product">${icon.share}</button>
         ${sold ? "" : `<button class="quick-add" data-act="add" data-id="${esc(p.id)}">${icon.bag} Add to Bag</button>`}
       </div>
       <div class="card-body">
@@ -500,19 +522,32 @@
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn btn-outline wish-inline ${state.wish.includes(p.id) ? "on" : ""}" data-act="wish" data-id="${esc(p.id)}">${state.wish.includes(p.id) ? "♥ Saved" : "♡ Save to Wishlist"}</button>
-            <a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink(`Hi! I'm interested in "${p.name}" (${p.id}) — ${location.href}`)}">Ask on WhatsApp</a>
+            <button class="btn btn-outline" data-act="share" data-id="${esc(p.id)}">${icon.share} Share</button>
+            <a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink(`Hi! I'm interested in "${p.name}" (${p.id}) — ${productUrl(p.id)}`)}">Ask on WhatsApp</a>
           </div>
           <div class="pdp-perks">
             <div class="perk">${icon.shield} Authenticity certificate</div>
-            <div class="perk">${icon.return} 7-day easy returns</div>
+            <div class="perk">${icon.lock} 100% prepaid, secure payment</div>
             <div class="perk">${icon.truck} Free shipping over ${money(CFG.freeShippingAbove)}</div>
             <div class="perk">${icon.gift} Gift-ready packaging</div>
           </div>
           <details class="acc" open><summary>Description</summary><p>${esc(p.description)}</p></details>
           <details class="acc"><summary>Product details</summary><ul>
             <li>Product code: ${esc(p.id)}</li>${p.metal ? `<li>Material: ${esc(p.metal)}</li>` : ""}${p.occasion ? `<li>Best for: ${esc(p.occasion)}</li>` : ""}</ul></details>
-          <details class="acc"><summary>Care tips</summary><p>Store in the pouch provided, away from moisture. Put it on after perfume and lotions. Wipe gently with a soft cloth after wearing.</p></details>
-          <details class="acc"><summary>Shipping &amp; returns</summary><p>Dispatched in 1–2 working days, delivered in 3–7 days across India. Returns accepted within 7 days of delivery in original condition. <a href="#/page/returns" style="color:var(--rose)">Read the policy</a>.</p></details>
+          <details class="acc"><summary>Jewellery care</summary><ul class="care-list">
+              <li>Avoid direct contact with perfume, lotion &amp; chemicals</li>
+              <li>Do not wear in chlorinated water (pool)</li>
+              <li>Safe for normal water, but keep it dry after use</li>
+              <li>Store in a dry, safe place (preferably a box/pouch)</li>
+              <li>Remove before sleeping or heavy activities</li>
+              <li>Clean gently with a soft cloth</li>
+            </ul></details>
+          <details class="acc"><summary>Shipping &amp; store policy</summary><ul>
+            <li>Free shipping on orders above ${money(CFG.freeShippingAbove)}</li>
+            <li>Prepaid orders only — no Cash on Delivery</li>
+            <li>No returns or exchanges</li>
+            <li>For damage during delivery, an unedited package opening video (start to end) is needed for any assistance</li></ul>
+            <p><a href="#/page/returns" style="color:var(--rose)">Read the full policy</a></p></details>
         </div>
       </section>
       ${related.length ? `<section class="section container"><div class="section-head"><div><h2>You may also love</h2></div></div><div class="grid">${related.map(card).join("")}</div></section>` : ""}`;
@@ -540,7 +575,7 @@
     }
     const u = state.user || {}, saved = store.get("address", {});
     const demo = !CFG.orderApiUrl;
-    const onlineOn = demo || !!CFG.razorpayKeyId;
+    const onlineOn = demo || !!CFG.razorpayKeyId || !!state.remote?.razorpayKeyId;
     const upiOn = !!upiInfo().id;
     const firstPay = upiOn ? "upi" : onlineOn ? "online" : "";   // prepaid only — no Cash on Delivery
     if (!sessionStorage.getItem("asj_ckv")) { try { sessionStorage.setItem("asj_ckv", "1"); } catch {} track("Viewed checkout", t.lines.map(l => `${l.p.name} × ${l.qty}`).join(", "), t.total); }
@@ -573,6 +608,7 @@
             <h3><span class="step-no">3</span> Payment</h3>
             ${upiOn ? `<label class="pay-opt pay-upi"><input type="radio" name="pay" value="upi" ${firstPay === "upi" ? "checked" : ""}><div><b>Pay by UPI <span class="pay-tag">Recommended</span></b><small>Scan the QR or open GPay, PhonePe, Paytm · then share the payment screenshot on WhatsApp</small></div><span class="upi-apps" aria-hidden="true">UPI</span></label>` : ""}
             ${onlineOn ? `<label class="pay-opt"><input type="radio" name="pay" value="online" ${firstPay === "online" ? "checked" : ""}><div><b>Pay online</b><small>Cards, net banking, wallets — secured by Razorpay</small></div></label>` : ""}
+            <label class="agree"><input type="checkbox" name="agree" value="yes" required> <span>I agree to the store policy: <b>prepaid only</b>, <b>no returns or exchanges</b>, and an <b>unedited package opening video</b> is needed for any damage claim. <a href="#/page/returns" target="_blank">Read policy</a></span></label>
             ${firstPay ? `<p class="muted pay-small prepaid-note">${icon.lock} All orders are prepaid. Your payment is safe and your order ships faster.</p>`
               : `<div class="demo-banner">Online payment is being set up. To order now, <a href="${waLink("Hi! I'd like to place an order.")}" target="_blank" rel="noopener" style="font-weight:700;text-decoration:underline">message us on WhatsApp</a>.</div>`}
           </div>
@@ -610,7 +646,7 @@
   function readForm() {
     const form = $("#checkoutForm");
     const bad = $$("input[required], select[required]", form).find(i => !i.checkValidity());
-    if (bad) { bad.focus(); bad.scrollIntoView({ block: "center", behavior: "smooth" }); toast("Please check: " + bad.closest("label").childNodes[0].textContent.trim()); return null; }
+    if (bad) { bad.focus(); bad.scrollIntoView({ block: "center", behavior: "smooth" }); toast(bad.type === "checkbox" ? "Please accept the store policy to continue" : "Please check: " + bad.closest("label").childNodes[0].textContent.trim()); return null; }
     const d = Object.fromEntries(new FormData(form));
     store.set("address", d);
     return d;
@@ -659,7 +695,7 @@
       await loadRazorpay();
       const r = await api({ action: "createOrder", items, coupon: state.coupon, customer });
       const rzp = new window.Razorpay({
-        key: CFG.razorpayKeyId || r.keyId, amount: r.amount, currency: "INR", order_id: r.razorpayOrderId,
+        key: r.keyId || CFG.razorpayKeyId, amount: r.amount, currency: "INR", order_id: r.razorpayOrderId,
         name: CFG.brand, description: `Order ${r.orderNumber}`,
         prefill: { name: c.name, email: c.email, contact: c.phone },
         notes: { order_number: r.orderNumber }, theme: { color: "#e8456a" },
@@ -747,12 +783,20 @@
     if (!o) return viewNotFound();
     app.innerHTML = `<section class="container success">
       <div class="tick">${icon.check}</div>
-      <h1>Thank you${state.user ? ", " + esc(firstName(state.user)) : ""}! 💖</h1>
+      <h1>Thank you so much for your order 🤍✨</h1>
+      <p>We truly appreciate your support for <a href="${esc(CFG.instagram)}" target="_blank" rel="noopener" style="color:var(--rose);font-weight:700">@${esc(CFG.instagramHandle || "as_premium_collections_")}</a></p>
       <p>${o.method === "upi"
         ? `Your order <b>${esc(o.orderNumber)}</b> for <b>${money(o.total)}</b> is placed. We'll confirm it as soon as we check your UPI payment.`
         : `Your order <b>${esc(o.orderNumber)}</b> for <b>${money(o.total)}</b> is confirmed${o.method === "cod" ? " (Cash on Delivery)" : ""}.`}</p>
       ${o.method === "upi" && !o.proofSent ? `<p><a class="btn btn-outline" href="#/pay">Haven't paid yet? Go back to payment</a></p>` : ""}
-      ${o.demo ? `<p class="demo-banner">This was a demo order — no payment was taken and nothing was saved.</p>` : `<p class="muted">We'll send updates on WhatsApp and email. Dispatch in 1–2 working days.</p>`}
+      <div class="policy-card"><b>Kindly note our store policy:</b>
+        <ul class="policy-list">
+          <li><b>No COD</b> – only prepaid orders</li>
+          <li><b>No returns or exchanges</b> available</li>
+          <li>In case of any damage during delivery, an <b>unedited package opening video</b> (from start to end) is mandatory for any assistance</li>
+        </ul>
+        <p>Once payment is completed, your order will be processed and dispatched 📦💕</p></div>
+      ${o.demo ? `<p class="demo-banner">This was a demo order — no payment was taken and nothing was saved.</p>` : ""}
       <div class="hero-ctas" style="justify-content:center">
         <a class="btn btn-primary" href="#/shop">Continue shopping</a>
         <a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink(`Hi! I just placed order ${o.orderNumber}.`)}">Track on WhatsApp</a>
@@ -771,10 +815,11 @@
   /* ---------- Policy pages (edit text before going live) ---------- */
   const pages = {
     shipping: ["Shipping Policy", `<p>We ship across India. Orders are dispatched within 1–2 working days and usually arrive within 3–7 working days, depending on your PIN code.</p><p>Shipping is free on orders above ${money(CFG.freeShippingAbove)}. A fee of ${money(CFG.shippingFee)} applies to smaller orders. You'll receive tracking details by WhatsApp/email once your order ships.</p>`],
-    returns: ["Returns & Refunds", `<p>If you're not happy with your purchase, you can request a return within 7 days of delivery. Items must be unused, in original packaging, with the authenticity card.</p><p>Earrings and nose pins cannot be returned for hygiene reasons unless they arrive damaged. Refunds are issued to the original payment method within 5–7 working days after we receive and check the item. For UPI payments we refund to the same UPI ID or bank account.</p><p>To start a return, message us on WhatsApp with your order number.</p>`],
-    terms: ["Terms & Conditions", `<p>This website is operated by ${esc(CFG.brand)}. By placing an order you agree to these terms.</p><h2>Pricing</h2><p>All prices are in Indian Rupees and include applicable taxes. We may correct pricing errors and cancel affected orders with a full refund.</p><h2>Orders</h2><p>All orders are prepaid. An order is confirmed once we receive your payment (for UPI, after we check your payment proof). We may cancel orders that look fraudulent.</p><h2>Product images</h2><p>We photograph every piece carefully, but colours may vary slightly between screens.</p><h2>Governing law</h2><p>These terms are governed by the laws of India.</p>`],
+    returns: ["Returns & Refund Policy", `<p>Every piece is checked and carefully packed before it leaves us. Please read our store policy before ordering.</p><ul class="policy-list">          <li><b>No COD</b> – only prepaid orders</li>          <li><b>No returns or exchanges</b> available</li>          <li>In case of any damage during delivery, an <b>unedited package opening video</b> (from start to end) is mandatory for any assistance</li>        </ul><h2>Damage during delivery</h2><p>If your parcel arrives damaged, message us on WhatsApp with your order number and the complete, unedited video of opening the package, from the sealed parcel to the end. Without this video we can't help with damage claims.</p><h2>Refunds</h2><p>Refunds are made only if we cancel your order, or if we approve a damage claim. Refunds go back to the original payment method (or the same UPI ID / bank account for UPI payments) within 5–7 working days.</p>`],
+    care: ["Jewellery Care", `<p>A little care keeps your jewellery shining for longer.</p><ul class="care-list">              <li>Avoid direct contact with perfume, lotion &amp; chemicals</li>              <li>Do not wear in chlorinated water (pool)</li>              <li>Safe for normal water, but keep it dry after use</li>              <li>Store in a dry, safe place (preferably a box/pouch)</li>              <li>Remove before sleeping or heavy activities</li>              <li>Clean gently with a soft cloth</li>            </ul>`],
+    terms: ["Terms & Conditions", `<p>This website is operated by ${esc(CFG.brand)}. By placing an order you agree to these terms.</p><h2>Pricing</h2><p>All prices are in Indian Rupees and include applicable taxes. We may correct pricing errors and cancel affected orders with a full refund.</p><h2>Orders</h2><p>All orders are prepaid — no Cash on Delivery. An order is confirmed once we receive your payment (for UPI, after we check your payment proof). We do not accept returns or exchanges; see our <a href="#/page/returns">Returns &amp; Refund Policy</a>. We may cancel orders that look fraudulent.</p><h2>Product images</h2><p>We photograph every piece carefully, but colours may vary slightly between screens.</p><h2>Governing law</h2><p>These terms are governed by the laws of India.</p>`],
     privacy: ["Privacy Policy", `<p>We collect only what we need to fulfil your order: your name, phone, email and address. If you sign in with Google we receive your name, email and profile photo.</p><p>Payments are processed by Razorpay; we never see or store your card or UPI details. We do not sell your data. We use your contact details to send order updates and, if you opt in, occasional offers.</p><p>To have your data deleted, email ${esc(CFG.supportEmail)}.</p>`],
-    contact: ["Contact Us", `<p>We'd love to help you choose the perfect piece.</p><ul><li>WhatsApp / Phone: ${esc(CFG.supportPhone)}</li><li>Email: ${esc(CFG.supportEmail)}</li><li>Address: ${esc(CFG.businessAddress)}</li></ul><p><a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink("Hi AS Jewels!")}">Chat on WhatsApp</a></p>`]
+    contact: ["Contact Us", `<p>We'd love to help you choose the perfect piece.</p><ul><li>WhatsApp / Phone: ${esc(CFG.supportPhone)}</li><li>Email: ${esc(CFG.supportEmail)}</li><li>Address: ${esc(CFG.businessAddress)}</li></ul><p><a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink(`Hi ${CFG.brand}!`)}">Chat on WhatsApp</a></p>`]
   };
   function viewPage(slug) {
     const pg = pages[slug]; if (!pg) return viewNotFound();
@@ -1034,6 +1079,7 @@
       const id = a.dataset.id;
       switch (a.dataset.act) {
         case "add": e.preventDefault(); addToCart(id); break;
+        case "share": e.preventDefault(); shareProduct(id); break;
         case "wish": e.preventDefault(); toggleWish(id);
           if (a.classList.contains("wish-inline")) { const on = state.wish.includes(id); a.classList.toggle("on", on); a.textContent = on ? "♥ Saved" : "♡ Save to Wishlist"; } break;
         case "inc": setQty(id, (state.cart.find(l => l.id === id)?.qty || 0) + 1); break;
