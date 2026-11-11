@@ -12,6 +12,9 @@
  *   - Project Settings (gear) → Script Properties → add:
  *       RAZORPAY_KEY_ID      rzp_test_xxxxx   (later rzp_live_xxxxx)
  *       RAZORPAY_KEY_SECRET  your secret key
+ *       GOOGLE_CLIENT_ID     your Google OAuth Client ID (same as googleClientId in config.js)
+ *   5. Customers who sign in with Google are listed in the "Customers" tab automatically,
+ *      with the phone and address they save on their My Profile page.
  *   - Deploy → New deployment → Web app → Execute as: Me → Who has access: Anyone → Deploy.
  *   - Copy the Web app URL into orderApiUrl in js/config.js.
  *   - After ANY change here: Deploy → Manage deployments → Edit → Version: New version → Deploy.
@@ -34,6 +37,8 @@ function doPost(e) {
     if (body.action === 'createOrder') return json(createOrder(body));
     if (body.action === 'verify') return json(verifyPayment(body));
     if (body.action === 'cod') return json(createCodOrder(body));
+    if (body.action === 'login') return json(saveCustomer(body));
+    if (body.action === 'profile') return json(saveProfile(body));
     return json({ ok: false, error: 'Unknown action' });
   } catch (err) {
     console.error(err);
@@ -131,6 +136,61 @@ function createCodOrder(body) {
   logOrder(orderNumber, 'COD - to confirm', 'Cash on Delivery', priced, body, '', '');
   reduceStock(priced.summary);
   return { ok: true, orderNumber: orderNumber, amount: priced.total * 100 };
+}
+
+/* ---------- Customers (Google Sign-In + My Profile) ---------- */
+// Each customer is one row in the "Customers" tab, matched by email.
+const CUSTOMER_HEADERS = ['First sign-in', 'Last sign-in', 'Name', 'Email', 'Photo', 'Sign-ins', 'Google ID', 'Phone', 'Address', 'Profile updated'];
+
+// Asks Google to confirm the sign-in token is real and was issued for this website.
+function verifyGoogle(credential) {
+  if (!credential) throw new Error('Missing sign-in token');
+  const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw new Error('Sign-in expired. Please sign in again.');
+  const t = JSON.parse(res.getContentText());
+  const clientId = PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID');
+  if (clientId && t.aud !== clientId) throw new Error('Sign-in was not for this website');
+  if (String(t.email_verified) !== 'true') throw new Error('Email not verified');
+  return t;
+}
+
+function customersSheet() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName('Customers');
+  if (!sh) { sh = ss.insertSheet('Customers'); sh.setFrozenRows(1); }
+  sh.getRange(1, 1, 1, CUSTOMER_HEADERS.length).setValues([CUSTOMER_HEADERS]); // keeps headers up to date
+  return sh;
+}
+
+function findCustomerRow(sh, email) {
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][3]).toLowerCase() === String(email).toLowerCase()) return { row: i + 1, values: data[i] };
+  }
+  return null;
+}
+
+function saveCustomer(body) {
+  const t = verifyGoogle(body.credential);
+  const sh = customersSheet(), now = new Date(), found = findCustomerRow(sh, t.email);
+  if (found) {
+    sh.getRange(found.row, 2, 1, 6).setValues([[now, t.name || found.values[2], t.email, t.picture || '', (Number(found.values[5]) || 0) + 1, t.sub]]);
+    return { ok: true, returning: true };
+  }
+  sh.appendRow([now, now, t.name || '', t.email, t.picture || '', 1, t.sub, '', '', '']);
+  return { ok: true, returning: false };
+}
+
+function saveProfile(body) {
+  const t = verifyGoogle(body.credential);
+  const p = body.profile || {};
+  const phone = String(p.phone || '').replace(/\D/g, '').slice(0, 10);
+  const sh = customersSheet(), now = new Date();
+  let found = findCustomerRow(sh, t.email);
+  if (!found) { saveCustomer(body); found = findCustomerRow(sh, t.email); }
+  sh.getRange(found.row, 3).setValue(String(p.name || t.name || '').slice(0, 100));
+  sh.getRange(found.row, 8, 1, 3).setValues([["'" + phone, String(p.address || '').slice(0, 300), now]]);
+  return { ok: true };
 }
 
 /* ---------- Sheet helpers ---------- */
