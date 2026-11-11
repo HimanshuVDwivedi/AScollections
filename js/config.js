@@ -52,7 +52,7 @@ window.AS_CONFIG = {
      razorpayKeyId: your PUBLIC key (rzp_test_... while testing, rzp_live_... later).
      orderApiUrl: the Web App URL of apps-script/Code.gs (keeps your SECRET key safe).
      Leave orderApiUrl empty to run the shop in DEMO mode (no real payment). */
-  razorpayKeyId: "",
+  razorpayKeyId: "rzp_test_Tyv15THAxZSOnQ",
   orderApiUrl: "https://script.google.com/macros/s/AKfycbw3LftzhZF9GD8eijT2eIXuI1vadtdn-a60yIlQpJDxfsNHa_SlN-G2eVB76v_izm8/exec",
 
   /* ---------- Customer reviews (only add real ones) ---------- */
