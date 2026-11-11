@@ -1,7 +1,7 @@
 /**
- * AS JEWELS — STORE BACKEND (Google Apps Script, free)
+ * AS COLLECTIONS — STORE BACKEND (Google Apps Script, free)
  * ----------------------------------------------------
- * Lives inside your "AS Jewels Store" Google Sheet and fills its tabs:
+ * Lives inside your store Google Sheet (AS Collections) and fills its tabs:
  *   Products   – your catalogue (you edit it). The website reads it from here; nothing is published.
  *   Orders     – every order, with Order Status and Payment Status.
  *   Customers  – everyone who signs in with Google, plus the phone/address they save.
@@ -30,7 +30,7 @@ const COUPONS = {
   WELCOME10: { type: 'percent', value: 10 },
   FLAT200:   { type: 'flat', value: 200, minOrder: 1999 }
 };
-const FREE_SHIPPING_ABOVE = 999;
+const FREE_SHIPPING_ABOVE = 1499;
 const SHIPPING_FEE = 79;
 
 const ORDER_HEADERS = ['Date', 'Order No', 'Order Status', 'Payment Status', 'Payment Method', 'Amount (₹)', 'Items',
@@ -38,10 +38,11 @@ const ORDER_HEADERS = ['Date', 'Order No', 'Order Status', 'Payment Status', 'Pa
 const CUSTOMER_HEADERS = ['First Sign-in', 'Last Sign-in', 'Name', 'Email', 'Photo', 'Sign-ins', 'Google ID',
   'Phone', 'Address', 'Profile Updated', 'Birthday'];
 const ACTIVITY_HEADERS = ['Time', 'Event', 'Customer', 'Order No', 'Amount (₹)', 'Details'];
-const TRACKED_EVENTS = ['Added to bag', 'Added to wishlist', 'Viewed checkout', 'Sent UPI proof on WhatsApp'];
+const TRACKED_EVENTS = ['Added to bag', 'Added to wishlist', 'Viewed checkout', 'Sent UPI proof on WhatsApp', 'Shared product'];
+const CATEGORIES = ['rings', 'earrings', 'traditional', 'ad', 'hampers', 'necklaces', 'pendants', 'bracelets', 'bangles', 'anklets', 'sets'];
 const ORDER_STATUSES = ['Awaiting payment', 'New – verify UPI payment', 'New – confirm by call', 'Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled', 'Returned'];
 const PAYMENT_STATUSES = ['Pending', 'Awaiting UPI proof', 'Pending (COD)', 'Paid', 'Failed', 'Cancelled by customer', 'Refunded'];
-const SETUP_VERSION = '2';
+const SETUP_VERSION = '3';
 
 /* ---------- Entry points ---------- */
 function doPost(e) {
@@ -75,7 +76,7 @@ function doGet(e) {
     if (!out) { out = JSON.stringify({ ok: true, products: listProducts(), settings: publicSettings() }); try { cache.put('products', out, 300); } catch (err) {} }
     return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
   }
-  return json({ ok: true, message: 'AS Jewels order API is running' });
+  return json({ ok: true, message: 'AS Collections order API is running' });
 }
 
 // Run this from the editor after editing products if you want the website to update immediately.
@@ -237,12 +238,13 @@ function createUpiOrder(body) {
 const SETTINGS_ROWS = [
   ['Setting', 'Value', 'What it is for'],
   ['UPI ID', '', 'Your UPI ID for the checkout QR, e.g. asjewels@okaxis. A business/merchant UPI ID works best.'],
-  ['UPI name', 'AS Jewels', 'Name customers see in their UPI app.'],
+  ['UPI name', 'AS Collections', 'Name customers see in their UPI app.'],
   ['WhatsApp number for payment proof', '', '91 + 10-digit number, no spaces. Leave empty to use the number in config.js.']
 ];
 function publicSettings() {
   const sh = SpreadsheetApp.getActive().getSheetByName('Settings');
-  const out = { upiId: '', upiName: 'AS Jewels', whatsapp: '' };
+  const out = { upiId: '', upiName: 'AS Collections', whatsapp: '', razorpayKeyId: '' };
+  const rk = razorpayKeys(); if (rk.id && rk.secret) out.razorpayKeyId = rk.id;   // public Key ID only — never the secret
   if (!sh) return out;
   sh.getDataRange().getValues().forEach(r => {
     const k = String(r[0]).trim(), v = String(r[1]).trim();
@@ -281,6 +283,14 @@ function setupSheet() {
   if (pc > 0) rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('Awaiting UPI proof').setBackground('#fff4d6').setFontColor('#7a5a14').setBold(true).setRanges([o.getRange(2, pc, 4999, 1)]).build());
   if (oc > 0) rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('New – verify UPI payment').setBackground('#ffe0e6').setFontColor('#861a38').setBold(true).setRanges([o.getRange(2, oc, 4999, 1)]).build());
   o.setConditionalFormatRules(rules);
+  // Products: category dropdown with the new sections; old shop name in Settings → AS Collections
+  const pr = ss.getSheetByName('Products');
+  if (pr) {
+    const ph = pr.getRange(1, 1, 1, pr.getLastColumn()).getValues()[0].map(h => String(h).trim().toLowerCase());
+    const cc = ph.indexOf('category') + 1;
+    if (cc > 0) pr.getRange(2, cc, 999, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(CATEGORIES, true).setAllowInvalid(true).build());
+  }
+  if (st) st.getDataRange().getValues().forEach((r, i) => { if (String(r[0]) === 'UPI name' && String(r[1]) === 'AS Jewels') st.getRange(i + 1, 2).setValue('AS Collections'); });
   // Dashboard: UPI figures
   const d = ss.getSheetByName('Dashboard');
   if (d && d.getRange('A22').getValue() === '') {
