@@ -46,6 +46,8 @@
     sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg>'
   };
 
+  const STATES = ["", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu & Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal", "Andaman & Nicobar", "Chandigarh", "Dadra & Nagar Haveli and Daman & Diu", "Lakshadweep"];
+
   /* ---------- Placeholder art (until real photos are uploaded) ---------- */
   const glyphs = {
     rings: '<circle cx="200" cy="230" r="78" fill="none" stroke="url(#m)" stroke-width="18"/><path d="M200 108l34 34-34 40-34-40z" fill="url(#g)"/>',
@@ -168,7 +170,7 @@
     $("#ticker").innerHTML = [...ann, ...ann].map(a => `<span>${esc(a)}</span>`).join("");
     const nav = `<a href="#/shop">All Jewellery</a>` + CATS.map(c => `<a href="#/shop?cat=${c.id}" data-cat="${c.id}">${c.name}</a>`).join("") + `<a href="#/shop?sort=discount" class="sale">Sale</a>`;
     $("#catNav").innerHTML = nav;
-    $("#menuBody").innerHTML = `<div class="menu-list">${nav.replace(/<\/a>/g, "<span>›</span></a>")}<a href="#/page/contact">Contact Us<span>›</span></a></div>`;
+    $("#menuBody").innerHTML = `<div class="menu-list">${nav.replace(/<\/a>/g, "<span>›</span></a>")}<a href="#/account">My Profile<span>›</span></a><a href="#/page/contact">Contact Us<span>›</span></a></div>`;
     $("#footCats").innerHTML = CATS.map(c => `<li><a href="#/shop?cat=${c.id}">${c.name}</a></li>`).join("");
     $("#footTagline").textContent = `${CFG.tagline}. Thoughtfully designed, carefully packed, delivered across India.`;
     $("#footContact").innerHTML = `
@@ -470,7 +472,7 @@
               <label class="field full">Area, landmark<input name="line2" autocomplete="address-line2" placeholder=" " value="${esc(saved.line2 || "")}"></label>
               <label class="field">City<input name="city" required autocomplete="address-level2" placeholder=" " value="${esc(saved.city || "")}"></label>
               <label class="field">PIN code<input name="pincode" required inputmode="numeric" pattern="[1-9][0-9]{5}" maxlength="6" autocomplete="postal-code" placeholder=" " value="${esc(saved.pincode || "")}"></label>
-              <label class="field full">State<select name="state" required>${["", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu & Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal", "Andaman & Nicobar", "Chandigarh", "Dadra & Nagar Haveli and Daman & Diu", "Lakshadweep"].map(s => `<option ${saved.state === s ? "selected" : ""} value="${s}">${s || "Select state"}</option>`).join("")}</select></label>
+              <label class="field full">State<select name="state" required>${STATES.map(s => `<option ${saved.state === s ? "selected" : ""} value="${s}">${s || "Select state"}</option>`).join("")}</select></label>
               <label class="field full">Gift message (optional)<textarea name="note" rows="2" placeholder="We'll handwrite it on a card">${esc(saved.note || "")}</textarea></label>
             </div>
           </div>
@@ -569,7 +571,9 @@
     } catch (err) { console.error(err); toast(esc(err.message)); reset(); }
   }
   function finishOrder(order) {
-    state.lastOrder = { ...order, date: new Date().toISOString() }; store.set("lastOrder", state.lastOrder);
+    const items = totals().lines.map(l => ({ id: l.id, name: l.p.name, qty: l.qty, price: l.p.price }));
+    state.lastOrder = { ...order, items, date: new Date().toISOString(), email: state.user?.email || "" }; store.set("lastOrder", state.lastOrder);
+    store.set("orders", [state.lastOrder, ...store.get("orders", [])].slice(0, 30));
     state.cart = []; state.coupon = ""; store.set("coupon", ""); saveCart();
     location.hash = "#/success";
   }
@@ -651,14 +655,8 @@
   function openAccount() {
     closeAll();
     const body = $("#accountBody"), u = state.user;
-    if (u) {
-      const o = state.lastOrder;
-      body.innerHTML = `${u.picture ? `<img class="avatar-lg" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
-        <h2 id="accTitle">Hi, ${esc(u.name.split(" ")[0])}!</h2><p class="muted">${esc(u.email)}</p>
-        ${o && !o.demo ? `<div class="note">Last order: <b>${esc(o.orderNumber)}</b> · ${money(o.total)} · ${new Date(o.date).toLocaleDateString("en-IN")}</div>` : ""}
-        <div class="hero-ctas" style="justify-content:center"><button class="btn btn-outline" data-act="wishlist">My Wishlist</button><button class="btn btn-primary" id="logoutBtn">Sign out</button></div>`;
-      $("#logoutBtn").onclick = () => { state.user = null; store.set("user", null); try { window.google?.accounts.id.disableAutoSelect(); } catch {} renderAccountIcon(); closeAll(); toast("Signed out"); };
-    } else {
+    if (u) { location.hash = "#/account"; return; }
+    {
       body.innerHTML = `<h2 id="accTitle">Welcome to ${esc(CFG.brand)}</h2><p class="muted">Sign in to save your wishlist, address and orders.</p>
         <div class="gsi-wrap" id="gsiBtn"></div>
         ${CFG.googleClientId ? "" : `<div class="note"><b>Setup needed:</b> add your Google OAuth Client ID to <code>googleClientId</code> in <code>js/config.js</code> to turn on "Continue with Google".</div>`}
@@ -667,6 +665,107 @@
     }
     const m = $("#accountModal"); m.classList.add("open"); m.setAttribute("aria-hidden", "false"); $("#overlay").classList.add("show");
   }
+  function signOut() {
+    state.user = null; store.set("user", null); store.set("cred", null);
+    try { window.google?.accounts.id.disableAutoSelect(); } catch {}
+    renderAccountIcon(); closeAll(); toast("Signed out");
+    if (location.hash.startsWith("#/account")) location.hash = "#/";
+  }
+
+  /* ---------- My Profile page ---------- */
+  function viewAccount() {
+    const u = state.user;
+    document.title = `My Profile — ${CFG.brand}`;
+    if (!u) {
+      app.innerHTML = `<section class="container empty" style="padding:90px 0"><div class="big">👤</div><h2>Sign in to see your profile</h2>
+        <p>Save your details once and check out faster every time.</p><button class="btn btn-primary" data-act="account">Sign in with Google</button></section>`;
+      return;
+    }
+    const a = store.get("address", {}), orders = store.get("orders", []).filter(o => !o.email || o.email === u.email);
+    const wish = state.wish.map(byId).filter(Boolean);
+    const filled = [a.name, a.phone, a.line1, a.city, a.pincode, a.state].filter(Boolean).length;
+    const status = o => o.demo ? ["Demo", "demo"] : o.method === "cod" ? ["Cash on Delivery", "cod"] : ["Paid", "paid"];
+    app.innerHTML = `
+      <section class="container page-head"><div class="crumbs"><a href="#/">Home</a> / My Profile</div><h1>My Profile</h1></section>
+      <section class="container account">
+        <aside class="panel acc-side">
+          ${u.picture ? `<img class="avatar-lg" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<div class="avatar-lg avatar-initial">${esc(u.name[0] || "?")}</div>`}
+          <h3>${esc(u.name)}</h3>
+          <p class="muted acc-email">${esc(u.email)}</p>
+          <div class="acc-progress"><span>Profile ${Math.round(filled / 6 * 100)}% complete</span><div class="meter"><i style="width:${Math.round(filled / 6 * 100)}%"></i></div></div>
+          <nav class="acc-nav">
+            <button data-jump="acc-details">${icon.shield} Personal details</button>
+            <button data-jump="acc-address">${icon.truck} Delivery address</button>
+            <button data-jump="acc-orders">${icon.gift} My orders <b>${orders.length}</b></button>
+            <button data-jump="acc-wish">${icon.heart} Wishlist <b>${wish.length}</b></button>
+          </nav>
+          <button class="btn btn-outline btn-block" id="signOutBtn">Sign out</button>
+        </aside>
+        <div class="acc-main">
+          <form id="profileForm" novalidate>
+            <div class="panel" id="acc-details">
+              <h3>Personal details</h3>
+              <div class="form-grid">
+                <label class="field">Full name<input name="name" required autocomplete="name" placeholder=" " value="${esc(a.name || u.name)}"></label>
+                <label class="field">Mobile number<input name="phone" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" autocomplete="tel-national" placeholder="10-digit mobile" value="${esc(a.phone || "")}"></label>
+                <label class="field full">Email<input name="email" type="email" value="${esc(u.email)}" readonly><small class="hint">From your Google account. Order updates are sent here.</small></label>
+              </div>
+            </div>
+            <div class="panel" id="acc-address">
+              <h3>Delivery address</h3>
+              <p class="muted" style="margin-top:0">Saved here and filled in for you at checkout.</p>
+              <div class="form-grid">
+                <label class="field full">House / flat, street<input name="line1" autocomplete="address-line1" placeholder=" " value="${esc(a.line1 || "")}"></label>
+                <label class="field full">Area, landmark<input name="line2" autocomplete="address-line2" placeholder=" " value="${esc(a.line2 || "")}"></label>
+                <label class="field">City<input name="city" autocomplete="address-level2" placeholder=" " value="${esc(a.city || "")}"></label>
+                <label class="field">PIN code<input name="pincode" inputmode="numeric" pattern="[1-9][0-9]{5}" maxlength="6" autocomplete="postal-code" placeholder=" " value="${esc(a.pincode || "")}"></label>
+                <label class="field full">State<select name="state">${STATES.map(s => `<option ${a.state === s ? "selected" : ""} value="${s}">${s || "Select state"}</option>`).join("")}</select></label>
+              </div>
+            </div>
+            <div class="acc-save"><button class="btn btn-primary" type="submit">Save profile</button><span class="muted" id="saveNote">${a.savedAt ? `Last saved ${new Date(a.savedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : ""}</span></div>
+          </form>
+
+          <div class="panel" id="acc-orders">
+            <h3>My orders</h3>
+            ${orders.length ? `<div class="order-list">${orders.map(o => { const [label, cls] = status(o); return `
+              <div class="order-row">
+                <div><b>${esc(o.orderNumber)}</b><span class="muted">${new Date(o.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span></div>
+                <div class="order-items">${(o.items || []).map(i => `${esc(i.name)} × ${i.qty}`).join(", ") || "—"}</div>
+                <div class="order-end"><b>${money(o.total)}</b><span class="pill ${cls}">${label}</span></div>
+              </div>`; }).join("")}</div>
+              <p class="muted" style="font-size:.8rem;margin-bottom:0">Orders placed on this device. For tracking, <a href="${waLink(`Hi! Please share the status of my order${orders[0] ? " " + orders[0].orderNumber : ""}.`)}" target="_blank" rel="noopener" style="color:var(--rose);font-weight:600">message us on WhatsApp</a>.</p>`
+              : `<div class="empty" style="padding:24px 0"><p>No orders yet.</p><a class="btn btn-primary" href="#/shop">Start shopping</a></div>`}
+          </div>
+
+          <div class="panel" id="acc-wish">
+            <h3>Wishlist</h3>
+            ${wish.length ? `<div class="grid grid-sm">${wish.map(card).join("")}</div>` : `<div class="empty" style="padding:24px 0"><p>Tap the ♡ on any piece to save it here.</p></div>`}
+          </div>
+        </div>
+      </section>`;
+
+    $$(".acc-nav [data-jump]").forEach(b => b.onclick = () => $("#" + b.dataset.jump).scrollIntoView({ behavior: "smooth", block: "start" }));
+    $("#signOutBtn").onclick = signOut;
+    $("#profileForm").onsubmit = async e => {
+      e.preventDefault();
+      const f = e.target;
+      const bad = $$("input", f).find(i => !i.checkValidity());
+      if (bad) { bad.focus(); toast("Please check: " + bad.closest("label").childNodes[0].textContent.trim()); return; }
+      const d = Object.fromEntries(new FormData(f));
+      const saved = { ...store.get("address", {}), ...d, email: u.email, savedAt: new Date().toISOString() };
+      store.set("address", saved);
+      const note = $("#saveNote");
+      note.textContent = "Saved ✓"; toast("Profile saved ✨");
+      const cred = store.get("cred", null);
+      if (CFG.orderApiUrl && cred) {
+        try {
+          await api({ action: "profile", credential: cred, profile: { name: d.name, phone: d.phone, address: [d.line1, d.line2, d.city, d.state, d.pincode].filter(Boolean).join(", ") } });
+          note.textContent = "Saved ✓ and synced to the store";
+        } catch { note.textContent = "Saved ✓ (sign in again to sync with the store)"; }
+      }
+    };
+  }
+
   let gsiReady;
   function initGoogle() {
     if (gsiReady) return gsiReady;
@@ -678,9 +777,13 @@
           callback: resp => {
             const p = decodeJwt(resp.credential); if (!p) return toast("Sign-in failed");
             state.user = { name: p.name || p.email, email: p.email, picture: p.picture };
-            store.set("user", state.user); renderAccountIcon(); closeAll();
+            store.set("user", state.user); store.set("cred", resp.credential); renderAccountIcon(); closeAll();
+            // Record the sign-in in the "Customers" tab of your Google Sheet (needs orderApiUrl)
+            if (CFG.orderApiUrl) api({ action: "login", credential: resp.credential }).catch(err => console.warn("Customer log failed:", err.message));
             toast(`Welcome, ${esc(state.user.name.split(" ")[0])}! ✨`);
             if (location.hash.startsWith("#/checkout")) viewCheckout();
+            else if (location.hash.startsWith("#/account")) viewAccount();
+            else location.hash = "#/account";
           }
         });
         ok();
@@ -693,6 +796,7 @@
   /* ---------- Router ---------- */
   function route() {
     clearInterval(heroTimer);
+    $$(".confetti").forEach(c => c.remove());
     const [path, qs] = (location.hash.slice(1) || "/").split("?");
     const parts = path.split("/").filter(Boolean), params = new URLSearchParams(qs || "");
     document.title = `${CFG.brand} — ${CFG.tagline}`;
@@ -703,6 +807,7 @@
     else if (parts[0] === "checkout") viewCheckout();
     else if (parts[0] === "success") viewSuccess();
     else if (parts[0] === "page") viewPage(parts[1]);
+    else if (parts[0] === "account") viewAccount();
     else viewNotFound();
     const cat = params.get("cat");
     $$("#catNav a").forEach(a => a.classList.toggle("active", parts[0] === "shop" && a.dataset.cat === cat));
