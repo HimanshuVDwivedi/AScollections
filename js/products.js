@@ -1,10 +1,10 @@
 /* =========================================================
-   AS JEWELS — PRODUCT LIST
+   AS COLLECTIONS — PRODUCT LIST
    ---------------------------------------------------------
    Add one block per product. Fields:
      id        unique short code, no spaces        "R001"
      name      product name                         "Rose Halo Ring"
-     category  rings | earrings | necklaces | pendants | bracelets | bangles | anklets | sets
+     category  rings | earrings | traditional | ad | hampers | necklaces | pendants | bracelets | bangles | anklets | sets
      price     SALE price you charge (number)       1499
      mrp       original / regular price (number)    2999
      images    list of image paths, first = main    ["images/r001-1.jpg", "images/r001-2.jpg"]
@@ -46,6 +46,9 @@ window.AS_PRODUCTS = [
 window.AS_CATEGORIES = [
   { id: "rings",     name: "Rings",     hue: 330 },
   { id: "earrings",  name: "Earrings",  hue: 20 },
+  { id: "traditional", name: "Traditional Jewellery", hue: 40 },
+  { id: "ad",        name: "AD Jewellery", hue: 200 },
+  { id: "hampers",   name: "Hampers",   hue: 345 },
   { id: "necklaces", name: "Necklaces", hue: 160 },
   { id: "pendants",  name: "Pendants",  hue: 280 },
   { id: "bracelets", name: "Bracelets", hue: 200 },
